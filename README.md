@@ -28,5 +28,13 @@ Enter (or T) to chat, Esc to stop typing. On phones: left thumb on the joystick,
 - `shared/protocol.ts` — message types used by both sides.
 - `src/net.ts` — client connection.
 - `src/campus/` — the campus model (from the portfolio) plus `Live.tsx`: other players, labels, chat.
+- `src/campus/indoors.ts` + `Interiors.tsx` — every building is enterable: brick shells with see-through
+  ribbon windows, an internal stair to the first floor, rooms on the 8.8 m grid (classrooms, studios, the
+  library, the commons, dining) with ~1,100 seats. Doors are placed wherever a wall faces open ground at
+  that floor's level. Also the floor-aware `surfaceAt` / `blockedAt` used for all movement.
+- `src/campus/students.ts` + `Crowd.tsx` — 1,200 simulated students. A navigation graph built from the
+  same collision rules; each student has their own seat and a looping day (class, terraces, grand stairs,
+  lawn). Positions come from the student's number and the wall clock, so every browser sees the same crowd
+  without any server traffic. Drawn as eight instanced meshes.
 
 `VITE_SERVER_URL` points the client at a deployed server; `WS_PORT` changes the server's port.

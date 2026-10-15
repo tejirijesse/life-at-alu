@@ -9,9 +9,11 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Architecture from "./Architecture";
 import Environment from "./Environment";
-import { blocked, blocks, heightAt, placeName, plazas, ramps, spawn } from "./layout";
+import { blocks, heightAt, placeName, plazas, ramps, spawn } from "./layout";
+import { blockedAt, indoorName, interiorAt, surfaceAt } from "./indoors";
 import { Figure, poseFigure, setOutfit, type FigureStyle, type Rig } from "../three/Figure";
 import { net } from "../net";
+import Crowd from "./Crowd";
 import { Chat, Labels, MapDots, placeLabel, RemotePlayers, useNetStatus, useRoster, visitor } from "./Live";
 
 type Input = {
@@ -59,6 +61,8 @@ function Player({
   });
 
   useEffect(() => {
+    // Dev only: window.__player lets you teleport while testing (set x, y, z).
+    if (import.meta.env.DEV) (window as unknown as { __player: unknown }).__player = st.current;
     rig.current?.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) o.castShadow = true;
     });
@@ -104,16 +108,21 @@ function Player({
       dz = ((fz * fwd + rz * side) / n) * speed * dt;
     }
 
-    // Move axis by axis so walls slide; refuse steps taller than a stair.
-    const here = heightAt(s.x, s.z);
-    const ok = (x: number, z: number) => !blocked(x, z) && Math.abs(heightAt(x, z) - here) < 0.75 && Math.abs(x) < 300 && Math.abs(z) < 300;
+    // Move axis by axis so walls slide; refuse steps taller than a stair. Height comes from
+    // whatever floor, tread or terrace is under you, so upstairs and downstairs stay separate.
+    const ground = (x: number, z: number) => surfaceAt(x, z, s.y);
+    const here = ground(s.x, s.z) ?? s.y;
+    const ok = (x: number, z: number) => {
+      const g = ground(x, z);
+      return g !== null && Math.abs(g - here) < 0.75 && !blockedAt(x, z, g) && Math.abs(x) < 300 && Math.abs(z) < 300;
+    };
     const ox = s.x;
     const oz = s.z;
     if (dx && ok(s.x + dx, s.z)) s.x += dx;
     if (dz && ok(s.x, s.z + dz)) s.z += dz;
     const moved = Math.hypot(s.x - ox, s.z - oz);
 
-    s.y = damp(s.y, heightAt(s.x, s.z), 14, dt);
+    s.y = damp(s.y, ground(s.x, s.z) ?? here, 14, dt);
     if (moved > 1e-4) s.facing += wrap(Math.atan2(s.x - ox, s.z - oz) - s.facing) * (1 - Math.exp(-dt * 10));
 
     const v = moved / Math.max(dt, 1e-3);
@@ -143,17 +152,35 @@ function Player({
       return;
     }
 
-    // Third-person camera behind and above, following the look direction.
-    const dist = 7.5;
-    const target = new THREE.Vector3(s.x, s.y + 1.6, s.z);
+    // Third-person camera behind and above, following the look direction. Indoors it pulls in
+    // and stays inside the room, under the ceiling, instead of ending up in the brickwork.
+    const room = interiorAt(s.x, s.z, s.y);
+    const dist = room ? 4.6 : 7.5;
+    const target = new THREE.Vector3(s.x, s.y + (room ? 1.45 : 1.6), s.z);
     const want = new THREE.Vector3(
       s.x - fx * dist * Math.cos(inp.pitch),
-      s.y + 1.6 + dist * Math.sin(inp.pitch),
+      target.y + dist * Math.sin(inp.pitch),
       s.z - fz * dist * Math.cos(inp.pitch),
     );
-    // Keep the camera above whatever terrain it's over.
-    want.y = Math.max(want.y, heightAt(want.x, want.z) + 0.8);
-    s.cam.lerp(want, 1 - Math.exp(-dt * 8));
+    if (room) {
+      // Walk back from the head toward the wanted spot only as far as the room allows.
+      let t = 1;
+      const axes: ["x" | "y" | "z", number, number][] = [
+        ["x", room.x0, room.x1],
+        ["y", room.y0, room.y1],
+        ["z", room.z0, room.z1],
+      ];
+      for (const [a, lo, hi] of axes) {
+        const d = want[a] - target[a];
+        if (d > 1e-6 && target[a] + d * t > hi) t = Math.max(0, (hi - target[a]) / d);
+        if (d < -1e-6 && target[a] + d * t < lo) t = Math.max(0, (lo - target[a]) / d);
+      }
+      want.lerpVectors(target, want, Math.max(0.12, t));
+    } else {
+      // Keep the camera above whatever terrain it's over.
+      want.y = Math.max(want.y, heightAt(want.x, want.z) + 0.8);
+    }
+    s.cam.lerp(want, 1 - Math.exp(-dt * (room ? 12 : 8)));
     camera.position.copy(s.cam);
     camera.lookAt(target);
 
@@ -161,7 +188,7 @@ function Player({
     s.t += dt;
     if (s.t > 0.25) {
       s.t = 0;
-      const place = placeName(s.x, s.z);
+      const place = indoorName(s.x, s.z, s.y) ?? placeName(s.x, s.z);
       if (place !== s.lastPlace) {
         s.lastPlace = place;
         onPlace(place);
@@ -255,6 +282,7 @@ export default function Campus() {
     }
   });
   const status = useNetStatus();
+  const [students, setStudents] = useState(0);
   const roster = useRoster();
   // My look depends on the colour the server hands me, so it's settled once I'm in.
   const [me, setMe] = useState<{ id: string; style: FigureStyle } | null>(null);
@@ -345,6 +373,7 @@ export default function Campus() {
           <Architecture />
           {me && <Player input={input} onPlace={setPlace} dotRef={dotRef} style={me.style} />}
           <RemotePlayers />
+          <Crowd onReady={setStudents} />
         </Canvas>
       </div>
 
@@ -355,7 +384,7 @@ export default function Campus() {
           <p className={`campus-online${status === "online" ? "" : " off"}`}>
             <i />
             {status === "online"
-              ? `${roster.length + 1} on campus`
+              ? `${roster.length + 1} online${students ? ` · ${students.toLocaleString("en")} students on campus` : ""}`
               : status === "connecting"
                 ? "Connecting…"
                 : "Offline — is the server running?"}

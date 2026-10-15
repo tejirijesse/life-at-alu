@@ -4,8 +4,9 @@
 
 import * as THREE from "three";
 import { useMemo } from "react";
-import { beds, blocks, canopy, drums, FLOOR, heightAt, openPods, outbuilding, pergolas, planters, platform, plazas, pond, POD_R, ramps, spiral, terraces, terrain, type Block } from "./layout";
+import { beds, blocks, canopy, drums, FLOOR, heightAt, openPods, outbuilding, pergolas, planters, platform, plazas, pond, POD_R, ramps, rampY, spiral, terraces, terrain, type Block } from "./layout";
 import { brick, gravel, paving, screen, sign } from "./textures";
+import Interiors from "./Interiors";
 
 const tex = (base: THREE.Texture, rx: number, ry: number) => {
   const t = base.clone();
@@ -72,50 +73,13 @@ function Building({ b }: { b: Block }) {
       ? new THREE.MeshStandardMaterial({ color: "#c98a5c", roughness: 1 })
       : new THREE.MeshStandardMaterial({ map: tex(gravel(), w / 6, d / 6), roughness: 1 });
 
-    // Ribbon windows and mullions, floor by floor, on the four straight faces.
-    const panes: THREE.Matrix4[] = [];
-    const mullions: THREE.Matrix4[] = [];
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const faces = [
-      { axis: "x", len: w - 2 * b.radius - 1.2, at: d / 2 + 0.06, sign: 1 },
-      { axis: "x", len: w - 2 * b.radius - 1.2, at: -d / 2 - 0.06, sign: -1 },
-      { axis: "z", len: d - 2 * b.radius - 1.2, at: w / 2 + 0.06, sign: 1 },
-      { axis: "z", len: d - 2 * b.radius - 1.2, at: -w / 2 - 0.06, sign: -1 },
-    ];
-    for (let f = 0; f < b.floors; f++) {
-      const y = f * FLOOR + 1.55;
-      faces.forEach((face, fi) => {
-        // Leave the middle of the screened facade solid for the brick lattice.
-        if (b.screen && fi === 0 && f > 0) return;
-        if (face.len < 2) return;
-        const pos = face.axis === "x" ? new THREE.Vector3(0, y, face.at) : new THREE.Vector3(face.at, y, 0);
-        const scale = face.axis === "x" ? new THREE.Vector3(face.len, 1.55, 0.08) : new THREE.Vector3(0.08, 1.55, face.len);
-        panes.push(m.compose(pos, q, scale).clone());
-        const n = Math.floor(face.len / 1.6);
-        for (let k = 0; k <= n; k++) {
-          const t = -face.len / 2 + (k * face.len) / n;
-          const p = face.axis === "x" ? new THREE.Vector3(t, y, face.at + face.sign * 0.04) : new THREE.Vector3(face.at + face.sign * 0.04, y, t);
-          const sc = face.axis === "x" ? new THREE.Vector3(0.09, 1.6, 0.1) : new THREE.Vector3(0.1, 1.6, 0.09);
-          mullions.push(m.compose(p, q, sc).clone());
-        }
-      });
-    }
-    const paneMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), M.glass, panes.length);
-    panes.forEach((mm, i) => paneMesh.setMatrixAt(i, mm));
-    const mullMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), M.frame, mullions.length);
-    mullions.forEach((mm, i) => mullMesh.setMatrixAt(i, mm));
-    paneMesh.castShadow = mullMesh.castShadow = true;
-
     return {
       brickMat,
       roofMat,
-      walls: slab(w, d, b.radius, H),
-      bands: Array.from({ length: b.floors }, (_, f) => ({ y: (f + 1) * FLOOR - 0.15, g: slab(w + 0.25, d + 0.25, b.radius + 0.12, 0.3) })),
+      // Floor bands are rings now, so they don't cap the stairwell.
+      bands: Array.from({ length: b.floors }, (_, f) => ({ y: (f + 1) * FLOOR - 0.15, g: slab(w + 0.25, d + 0.25, b.radius + 0.12, 0.3, 0.5) })),
       roof: slab(w - 0.6, d - 0.6, Math.max(0.3, b.radius - 0.3), 0.15),
       parapet: slab(w + 0.1, d + 0.1, b.radius + 0.05, 1.0, 0.35),
-      paneMesh,
-      mullMesh,
     };
   }, [b, w, d, H]);
 
@@ -124,14 +88,12 @@ function Building({ b }: { b: Block }) {
 
   return (
     <group position={[cx, b.base, cz]}>
-      <mesh geometry={parts.walls} material={parts.brickMat} castShadow receiveShadow />
+      {/* Walls, windows, floors and rooms are drawn by Interiors. */}
       {parts.bands.map((band, i) => (
         <mesh key={i} geometry={band.g} material={M.band} position={[0, band.y, 0]} castShadow />
       ))}
       <mesh geometry={parts.roof} material={parts.roofMat} position={[0, H, 0]} receiveShadow />
       <mesh geometry={parts.parapet} material={parts.brickMat} position={[0, H, 0]} castShadow />
-      <primitive object={parts.paneMesh} />
-      <primitive object={parts.mullMesh} />
 
       {b.screen && (
         <mesh position={[0, FLOOR + (H - FLOOR) / 2, d / 2 + 0.1]}>
@@ -154,10 +116,6 @@ function Building({ b }: { b: Block }) {
       {b.roofTerrace && <Railing w={w} d={d} h={H} />}
       {b.roofUnits && <RoofUnits w={w} d={d} h={H} seed={Math.round(cx * 7 + cz)} />}
 
-      {/* Ground-floor entrance on the courtyard side */}
-      <mesh position={[0, 1.4, d / 2 + 0.12]} material={M.door}>
-        <boxGeometry args={[3.2, 2.8, 0.1]} />
-      </mesh>
     </group>
   );
 }
@@ -503,11 +461,11 @@ function Stairs() {
     for (const r of ramps) {
       const len = r.z1 - r.z0;
       const width = r.x1 - r.x0;
-      const n = r.stairs ? Math.max(4, Math.round(Math.abs(r.yFrom - r.yTo) / 0.18)) : 44;
+      // Slices along the ramp; each takes the height under its middle, so treads and landings come out of rampY.
+      const n = r.stairs ? Math.max(4, Math.round(len / 0.15)) : 44;
       for (let i = 0; i < n; i++) {
-        const t0 = i / n;
-        const top = r.yFrom + (r.yTo - r.yFrom) * (r.stairs ? Math.min(1, (i + 0.5) / n) : t0);
         const z = r.z0 + (i + 0.5) * (len / n);
+        const top = r.stairs ? rampY(r, z) : r.yFrom + (r.yTo - r.yFrom) * ((i + 0.5) / n);
         const bottom = Math.min(top, terrain((r.x0 + r.x1) / 2, z), r.yTo) - 3;
         const h = top - bottom;
         (r.stairs ? mats : roadMats).push(
@@ -591,6 +549,7 @@ export default function Architecture() {
       {blocks.map((b) => (
         <Building key={b.name} b={b} />
       ))}
+      <Interiors />
       <Pergolas />
       <Drums />
       <OpenPods />
