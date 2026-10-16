@@ -66,7 +66,9 @@ function fileStore(path = "data/store.json"): Store {
 
 function pgStore(url: string): Store {
   // Supabase's session pooler; prepare:false keeps it working on the transaction pooler too.
-  const sql = postgres(url, { ssl: url.includes("localhost") ? false : "require", max: 4, prepare: false, idle_timeout: 30 });
+  // One connection, so writes land in the order they happen: with several, two quick saves of
+  // the same account could finish out of order and the older copy would win.
+  const sql = postgres(url, { ssl: url.includes("localhost") ? false : "require", max: 1, prepare: false, idle_timeout: 30, onnotice: () => {} });
   const report = (what: string) => (err: unknown) => console.error(`store: ${what} failed:`, err instanceof Error ? err.message : err);
   return {
     name: "postgres",
