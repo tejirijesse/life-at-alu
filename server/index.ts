@@ -1,21 +1,32 @@
-// Life at ALU — realtime server (prototype).
+// Life at ALU — realtime server.
 //
-// One shared room: the campus. Clients join with a display name, stream their position,
-// and receive everyone else's at TICK_HZ. Campus-wide chat with basic rate limiting.
-// No accounts yet: Phase 1 adds ALU sign-in (see PLAN.md) and moves this to Colyseus.
+// One shared room: the campus. People sign in with an ALU email and a code (accounts.ts), make an
+// avatar, pick a starting point, then join: they stream their position and receive everyone else's
+// at TICK_HZ. Campus-wide chat with basic rate limiting. Games run through server/games.
 
 import { WebSocketServer, type WebSocket } from "ws";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
-import { SERVER_PORT, TICK_HZ, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
+import { SERVER_PORT, TICK_HZ, type Account, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
+import { startById, type GameId } from "../shared/world";
+import * as accounts from "./accounts";
+import { HANDLERS, type GameContext, type GamePlayer } from "./games";
 
 const PALETTE = ["#d1495b", "#2e86ab", "#f18f01", "#3b8b5a", "#7b5ea7", "#c2185b", "#00897b", "#5d6d7e", "#e07a5f", "#3d405b"];
-const MAX_NAME = 20;
 const MAX_CHAT = 200;
 const CHAT_HISTORY = 30;
 const CHAT_GAP_MS = 600;
+const AUTH_STARTS_PER_10_MIN = 6;
 
-type Client = { ws: WebSocket; state: PlayerState | null; lastChat: number; lastSeen: number };
+type Client = {
+  ws: WebSocket;
+  /** Signed in as this email (null until a code or a saved sign-in checks out). */
+  email: string | null;
+  state: PlayerState | null;
+  lastChat: number;
+  lastSeen: number;
+  authStarts: number[];
+};
 
 const clients = new Map<string, Client>();
 const chat: ChatLine[] = [];
@@ -33,11 +44,11 @@ const allowed = (process.env.ALLOWED_ORIGINS ?? "")
 // Plain HTTP answers health checks; WebSocket upgrades go to the campus room.
 const http = createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/plain" });
-  res.end(`Life at ALU realtime server: ${clients.size} connected\n`);
+  res.end(`Life at ALU realtime server: ${[...clients.values()].filter((c) => c.state).length} on campus\n`);
 });
 const wss = new WebSocketServer({
   server: http,
-  maxPayload: 4096,
+  maxPayload: 8192,
   verifyClient: ({ origin }: { origin: string }) => !allowed.length || allowed.includes(origin),
 });
 http.listen(port);
@@ -47,18 +58,58 @@ const broadcast = (msg: ServerMsg, except?: string) => {
   const data = JSON.stringify(msg);
   for (const [id, c] of clients) if (id !== except && c.state && c.ws.readyState === c.ws.OPEN) c.ws.send(data);
 };
+/** Everyone signed in as this email (they may have two tabs open). */
+const connectionsOf = (email: string) => [...clients.values()].filter((c) => c.email === email);
 
-const clean = (s: unknown, max: number) =>
-  String(s ?? "")
-    .replace(/[\u0000-\u001f\u007f<>]/g, "")
-    .trim()
-    .slice(0, max);
 const finite = (n: unknown, lo: number, hi: number) => (typeof n === "number" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : 0);
+
+/** Coins changed: tell every tab of that person, with a fresh signed copy to keep. */
+function walletChanged(a: Account, delta: number, reason: string) {
+  const token = accounts.tokenFor(a);
+  for (const c of connectionsOf(a.email)) send(c.ws, { t: "wallet", coins: a.coins, delta, reason, token });
+}
+
+const gamePlayer = (id: string, c: Client): GamePlayer => ({ id, name: c.state?.name ?? "", email: c.email ?? "" });
+const onCampus = () => [...clients.entries()].filter(([, c]) => c.state && c.email).map(([id, c]) => gamePlayer(id, c));
+
+function gameContext(game: string, id: string, c: Client): GameContext {
+  const payTo = (delta: number, reason: string, toId?: string) => {
+    const target = toId ? clients.get(toId) : c;
+    if (!target?.email) return false;
+    const a = accounts.pay(target.email, delta, reason);
+    if (!a) return false;
+    walletChanged(a, delta, reason);
+    return true;
+  };
+  return {
+    player: gamePlayer(id, c),
+    players: onCampus,
+    send: (data, toId) => {
+      const target = toId ? clients.get(toId) : c;
+      if (target) send(target.ws, { t: "game", game, data });
+    },
+    broadcast: (data, only) => {
+      for (const p of onCampus()) if (!only || only(p)) send(clients.get(p.id)!.ws, { t: "game", game, data });
+    },
+    pay: payTo,
+    soloPayout: (requested, reason) => {
+      if (!c.email) return 0;
+      const amount = accounts.soloPayout(c.email, requested);
+      if (amount > 0) payTo(amount, reason);
+      return amount;
+    },
+  };
+}
 
 wss.on("connection", (ws) => {
   const id = randomUUID().slice(0, 8);
-  const client: Client = { ws, state: null, lastChat: 0, lastSeen: Date.now() };
+  const client: Client = { ws, email: null, state: null, lastChat: 0, lastSeen: Date.now(), authStarts: [] };
   clients.set(id, client);
+
+  const signedIn = (account: Account, isNew: boolean) => {
+    client.email = account.email;
+    send(ws, { t: "auth.ok", token: accounts.tokenFor(account), account, isNew });
+  };
 
   ws.on("message", (raw) => {
     let msg: ClientMsg;
@@ -69,20 +120,66 @@ wss.on("connection", (ws) => {
     }
     client.lastSeen = Date.now();
 
-    if (msg.t === "join" && !client.state) {
-      const name = clean(msg.name, MAX_NAME) || "Guest";
-      const color = PALETTE[colorIndex++ % PALETTE.length];
-      client.state = { id, name, color, x: -14, y: 0, z: 24, f: Math.PI, m: 0, r: 0 };
-      send(ws, {
-        t: "welcome",
-        id,
-        color,
-        players: [...clients.values()].filter((c) => c.state && c !== client).map((c) => c.state!),
-        chat,
-      });
-      broadcast({ t: "joined", player: client.state }, id);
-      console.log(`+ ${name} (${id}) — ${clients.size} online`);
-      return;
+    switch (msg.t) {
+      case "auth.start": {
+        const now = Date.now();
+        client.authStarts = client.authStarts.filter((t) => now - t < 600_000);
+        if (client.authStarts.length >= AUTH_STARTS_PER_10_MIN) {
+          send(ws, { t: "auth.error", message: "Too many codes requested. Try again in a few minutes." });
+          return;
+        }
+        client.authStarts.push(now);
+        const r = accounts.startCode(msg.email, msg.name);
+        if (!r.ok) {
+          send(ws, { t: "auth.error", message: r.message });
+          return;
+        }
+        // Demo mode shows the code on screen; with email set up, it would be sent here instead.
+        send(ws, { t: "auth.code", email: r.value.email, expiresIn: 600, isNew: r.value.isNew, demoCode: accounts.DEMO_CODES ? r.value.code : undefined });
+        return;
+      }
+      case "auth.verify": {
+        const r = accounts.verifyCode(msg.email, msg.code);
+        if (!r.ok) send(ws, { t: "auth.error", message: r.message });
+        else signedIn(r.value.account, r.value.isNew);
+        return;
+      }
+      case "auth.resume": {
+        const account = accounts.resume(msg.token);
+        if (!account) send(ws, { t: "auth.error", message: "Your saved sign-in has expired. Log in again." });
+        else signedIn(account, false);
+        return;
+      }
+      case "auth.logout":
+        client.email = null;
+        return;
+      case "profile.save": {
+        if (!client.email) return;
+        const a = accounts.saveProfile(client.email, msg.avatar, msg.start);
+        if (a) send(ws, { t: "profile.ok", token: accounts.tokenFor(a), account: a });
+        return;
+      }
+      case "join": {
+        if (client.state || !client.email) return;
+        const account = accounts.get(client.email);
+        if (!account?.avatar) {
+          send(ws, { t: "error", message: "Make your avatar first." });
+          return;
+        }
+        const start = startById(account.start ?? "");
+        const color = PALETTE[colorIndex++ % PALETTE.length];
+        client.state = { id, name: account.name, color, x: start.x, y: 0, z: start.z, f: start.facing, m: 0, r: 0, look: account.avatar };
+        send(ws, {
+          t: "welcome",
+          id,
+          color,
+          players: [...clients.values()].filter((c) => c.state && c !== client).map((c) => c.state!),
+          chat,
+        });
+        broadcast({ t: "joined", player: client.state }, id);
+        console.log(`+ ${account.name} (${id}) — ${onCampus().length} on campus`);
+        return;
+      }
     }
 
     if (!client.state) return;
@@ -99,7 +196,10 @@ wss.on("connection", (ws) => {
     }
 
     if (msg.t === "chat") {
-      const text = clean(msg.text, MAX_CHAT);
+      const text = String(msg.text ?? "")
+        .replace(/[\u0000-\u001f\u007f<>]/g, "")
+        .trim()
+        .slice(0, MAX_CHAT);
       const now = Date.now();
       if (!text || now - client.lastChat < CHAT_GAP_MS) return;
       client.lastChat = now;
@@ -107,6 +207,12 @@ wss.on("connection", (ws) => {
       chat.push(line);
       if (chat.length > CHAT_HISTORY) chat.shift();
       broadcast({ t: "chat", line });
+      return;
+    }
+
+    if (msg.t === "game") {
+      const handler = HANDLERS[msg.game as GameId];
+      if (handler) handler.message(gameContext(msg.game, id, client), msg.data);
     }
   });
 
@@ -114,15 +220,19 @@ wss.on("connection", (ws) => {
     const had = client.state;
     clients.delete(id);
     if (had) {
+      for (const [game, handler] of Object.entries(HANDLERS)) {
+        const { player: _p, ...ctx } = gameContext(game, id, client);
+        handler?.leave?.(ctx, id);
+      }
       broadcast({ t: "left", id });
-      console.log(`- ${had.name} (${id}) — ${clients.size} online`);
+      console.log(`- ${had.name} (${id}) — ${onCampus().length} on campus`);
     }
   });
 });
 
-// Everyone's positions, TICK_HZ times a second.
+// Everyone's positions, TICK_HZ times a second (looks are only sent on join).
 setInterval(() => {
-  const players = [...clients.values()].filter((c) => c.state).map((c) => c.state!);
+  const players = [...clients.values()].filter((c) => c.state).map(({ state }) => ({ ...state!, look: undefined }));
   if (players.length) broadcast({ t: "state", players });
 }, 1000 / TICK_HZ);
 
@@ -132,4 +242,6 @@ setInterval(() => {
   for (const c of clients.values()) if (c.lastSeen < cutoff) c.ws.terminate();
 }, 10_000);
 
-console.log(`Life at ALU server on ws://localhost:${port}${allowed.length ? ` (origins: ${allowed.join(", ")})` : ""}`);
+console.log(
+  `Life at ALU server on ws://localhost:${port}${allowed.length ? ` (origins: ${allowed.join(", ")})` : ""}${accounts.DEMO_CODES ? " [demo codes on screen]" : ""}`,
+);

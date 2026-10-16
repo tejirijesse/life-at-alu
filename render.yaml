@@ -11,3 +11,9 @@ services:
     envVars:
       - key: ALLOWED_ORIGINS
         sync: false
+      # Signs the saved sign-ins kept in each browser; Render makes a random one once and keeps it.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Demo mode: sign-in codes are shown on screen instead of emailed. Set to 0 once email is set up.
+      - key: DEMO_CODES
+        value: "1"
