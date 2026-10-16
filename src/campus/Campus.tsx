@@ -1,5 +1,5 @@
 
-// ALU Campus Live — the walkable campus, shared.
+// Life at ALU — the walkable campus, shared.
 // Everyone who opens the link walks the same terraces; names over heads, campus-wide chat.
 // Desktop: WASD / arrows to walk, Shift to run, drag (or Q / E) to look around.
 // Phones: left thumb on the joystick, drag anywhere else to look.
@@ -378,7 +378,7 @@ export default function Campus() {
       </div>
 
       <header className="campus-hud">
-        <p className="campus-kicker">ALU Campus Live</p>
+        <p className="campus-kicker">Life at ALU</p>
         <p className="campus-place">{place}</p>
         {started && (
           <p className={`campus-online${status === "online" ? "" : " off"}`}>

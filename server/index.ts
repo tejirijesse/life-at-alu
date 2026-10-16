@@ -1,4 +1,4 @@
-// ALU Campus Live — realtime server (prototype).
+// Life at ALU — realtime server (prototype).
 //
 // One shared room: the campus. Clients join with a display name, stream their position,
 // and receive everyone else's at TICK_HZ. Campus-wide chat with basic rate limiting.
@@ -112,4 +112,4 @@ setInterval(() => {
   for (const c of clients.values()) if (c.lastSeen < cutoff) c.ws.terminate();
 }, 10_000);
 
-console.log(`ALU Campus Live server on ws://localhost:${Number(process.env.WS_PORT) || SERVER_PORT}`);
+console.log(`Life at ALU server on ws://localhost:${Number(process.env.WS_PORT) || SERVER_PORT}`);

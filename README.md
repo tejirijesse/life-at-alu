@@ -1,4 +1,4 @@
-# ALU Campus Live
+# Life at ALU
 
 A shared, walkable ALU Kigali campus: everyone who opens the link walks the same terraces,
 sees who's around (names over heads, dots on the map) and can talk in campus-wide chat.
