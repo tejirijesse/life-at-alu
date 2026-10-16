@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci --include=dev
-    startCommand: npx tsx server/index.ts
+    startCommand: WS_PORT=$PORT npx tsx server/index.ts
     healthCheckPath: /
     envVars:
       - key: ALLOWED_ORIGINS

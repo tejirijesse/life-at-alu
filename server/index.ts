@@ -21,8 +21,9 @@ const clients = new Map<string, Client>();
 const chat: ChatLine[] = [];
 let colorIndex = 0;
 
-// Hosts (Render, Fly…) hand us PORT; WS_PORT is for running a second copy locally.
-const port = Number(process.env.PORT || process.env.WS_PORT) || SERVER_PORT;
+// WS_PORT only: a PORT meant for the web page (dev tools often set one) must not move us.
+// Hosts that hand out PORT map it in the start command (see render.yaml).
+const port = Number(process.env.WS_PORT) || SERVER_PORT;
 // In production, only the campus site may connect: ALLOWED_ORIGINS="https://life-at-alu.vercel.app,…".
 const allowed = (process.env.ALLOWED_ORIGINS ?? "")
   .split(",")
