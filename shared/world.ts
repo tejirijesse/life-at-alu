@@ -49,8 +49,9 @@ export const STARTS: Start[] = [
     title: "International student",
     blurb: "From Kenya, Ghana, Zambia, Egypt, Morocco… one of 40+ countries on campus.",
     welcome: "Welcome to ALU! Say hi to someone by the grand stairs.",
-    x: 6,
-    z: 22,
+    // At the foot of the grand stairs, clear of the courtyard tables (Environment.tsx).
+    x: 0,
+    z: 23,
     facing: Math.PI,
   },
   {
