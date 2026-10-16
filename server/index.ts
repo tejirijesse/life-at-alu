@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { SERVER_PORT, TICK_HZ, type Account, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
 import { startById, type GameId } from "../shared/world";
 import * as accounts from "./accounts";
-import { HANDLERS, type GameContext, type GamePlayer } from "./games";
+import { HANDLERS, type GameContext, type GamePlayer, type SystemContext } from "./games";
 
 const PALETTE = ["#d1495b", "#2e86ab", "#f18f01", "#3b8b5a", "#7b5ea7", "#c2185b", "#00897b", "#5d6d7e", "#e07a5f", "#3d405b"];
 const MAX_CHAT = 200;
@@ -72,9 +72,10 @@ function walletChanged(a: Account, delta: number, reason: string) {
 const gamePlayer = (id: string, c: Client): GamePlayer => ({ id, name: c.state?.name ?? "", email: c.email ?? "" });
 const onCampus = () => [...clients.entries()].filter(([, c]) => c.state && c.email).map(([id, c]) => gamePlayer(id, c));
 
-function gameContext(game: string, id: string, c: Client): GameContext {
+/** Send, broadcast and pay on behalf of a game, with no particular sender. */
+function systemContext(game: string): SystemContext {
   const payTo = (delta: number, reason: string, toId?: string) => {
-    const target = toId ? clients.get(toId) : c;
+    const target = toId ? clients.get(toId) : undefined;
     if (!target?.email) return false;
     const a = accounts.pay(target.email, delta, reason);
     if (!a) return false;
@@ -82,20 +83,30 @@ function gameContext(game: string, id: string, c: Client): GameContext {
     return true;
   };
   return {
-    player: gamePlayer(id, c),
     players: onCampus,
     send: (data, toId) => {
-      const target = toId ? clients.get(toId) : c;
+      const target = toId ? clients.get(toId) : undefined;
       if (target) send(target.ws, { t: "game", game, data });
     },
     broadcast: (data, only) => {
       for (const p of onCampus()) if (!only || only(p)) send(clients.get(p.id)!.ws, { t: "game", game, data });
     },
     pay: payTo,
+  };
+}
+
+/** The same, for a message from one player: send() and pay() default to them. */
+function gameContext(game: string, id: string, c: Client): GameContext {
+  const sys = systemContext(game);
+  return {
+    ...sys,
+    player: gamePlayer(id, c),
+    send: (data, toId) => sys.send(data, toId ?? id),
+    pay: (delta, reason, toId) => sys.pay(delta, reason, toId ?? id),
     soloPayout: (requested, reason) => {
       if (!c.email) return 0;
       const amount = accounts.soloPayout(c.email, requested);
-      if (amount > 0) payTo(amount, reason);
+      if (amount > 0) sys.pay(amount, reason, id);
       return amount;
     },
   };
@@ -220,10 +231,7 @@ wss.on("connection", (ws) => {
     const had = client.state;
     clients.delete(id);
     if (had) {
-      for (const [game, handler] of Object.entries(HANDLERS)) {
-        const { player: _p, ...ctx } = gameContext(game, id, client);
-        handler?.leave?.(ctx, id);
-      }
+      for (const [game, handler] of Object.entries(HANDLERS)) handler?.leave?.(systemContext(game), id);
       broadcast({ t: "left", id });
       console.log(`- ${had.name} (${id}) — ${onCampus().length} on campus`);
     }
@@ -235,6 +243,11 @@ setInterval(() => {
   const players = [...clients.values()].filter((c) => c.state).map(({ state }) => ({ ...state!, look: undefined }));
   if (players.length) broadcast({ t: "state", players });
 }, 1000 / TICK_HZ);
+
+// Game clocks and timeouts.
+setInterval(() => {
+  for (const [game, handler] of Object.entries(HANDLERS)) handler?.tick?.(systemContext(game));
+}, 1000);
 
 // Drop connections that went silent without closing.
 setInterval(() => {

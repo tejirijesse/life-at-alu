@@ -5,6 +5,8 @@
 // shared/world.ts and its screen in src/games. Messages arrive as { t: "game", game, data }.
 
 import type { GameId } from "../../shared/world";
+import { chess } from "./chess";
+import { pool } from "./pool";
 import { soloGame } from "./solo";
 
 export type GamePlayer = { id: string; name: string; email: string };
@@ -27,11 +29,18 @@ export type GameContext = {
 export type GameHandler = {
   message(ctx: GameContext, data: unknown): void;
   /** Someone left campus: tidy up any table or match they were in. */
-  leave?(ctx: Omit<GameContext, "player">, playerId: string): void;
+  leave?(ctx: SystemContext, playerId: string): void;
+  /** Called once a second, for clocks and timeouts. */
+  tick?(ctx: SystemContext): void;
 };
+
+/** A context with no sender, for timers and departures. */
+export type SystemContext = Omit<GameContext, "player" | "soloPayout">;
 
 export const HANDLERS: Partial<Record<GameId, GameHandler>> = {
   basketball: soloGame("basketball", (score) => score * 4),
   football: soloGame("football", (score) => score * 10),
   archery: soloGame("archery", (score) => Math.round(score / 2)),
+  chess,
+  pool,
 };

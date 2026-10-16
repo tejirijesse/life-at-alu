@@ -9,11 +9,15 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { COIN, type GameId, type Zone } from "../../shared/world";
 import { net } from "../net";
 import Basketball from "./Basketball";
+import Chess from "./Chess";
+import Pool from "./Pool";
 
 export type GameProps = { zone: Zone; onClose: () => void };
 
 const GAMES: Partial<Record<GameId, (p: GameProps) => React.ReactNode>> = {
   basketball: Basketball,
+  chess: Chess,
+  pool: Pool,
 };
 
 /** What each game will be, for the ones still being built. */
