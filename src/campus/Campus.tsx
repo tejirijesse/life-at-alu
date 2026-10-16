@@ -9,12 +9,16 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Architecture from "./Architecture";
 import Environment from "./Environment";
-import { blocks, heightAt, placeName, plazas, ramps, spawn } from "./layout";
+import { blocks, heightAt, placeName, plazas, ramps } from "./layout";
 import { blockedAt, indoorName, interiorAt, surfaceAt } from "./indoors";
 import { Figure, poseFigure, setOutfit, type FigureStyle, type Rig } from "../three/Figure";
 import { net } from "../net";
 import Crowd from "./Crowd";
-import { Chat, Labels, MapDots, placeLabel, RemotePlayers, useNetStatus, useRoster, visitor } from "./Live";
+import GameSpots from "./GameSpots";
+import { Chat, Labels, MapDots, placeLabel, RemotePlayers, styleFor, useNetStatus, useRoster } from "./Live";
+import Onboarding, { useAuth } from "./Onboarding";
+import GameHost, { Wallet } from "../games/GameHost";
+import { startById, ZONES, type Zone } from "../../shared/world";
 
 type Input = {
   keys: Set<string>;
@@ -32,26 +36,35 @@ type Input = {
 const damp = (a: number, b: number, k: number, dt: number) => a + (b - a) * (1 - Math.exp(-k * dt));
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-const start = { x: spawn.x + (Math.random() - 0.5) * 8, z: spawn.z + (Math.random() - 0.5) * 3 };
+/** The game spot I'm standing in, if any (same floor, within its radius). */
+const zoneAt = (x: number, y: number, z: number) =>
+  ZONES.find((zn) => Math.abs(zn.y - y) < 1.6 && Math.hypot(zn.x - x, zn.z - z) < zn.radius) ?? null;
 
 function Player({
   input,
   onPlace,
+  onZone,
   dotRef,
   style,
+  spawn,
 }: {
   input: React.MutableRefObject<Input>;
   onPlace: (p: string) => void;
+  onZone: (z: Zone | null) => void;
   dotRef: React.RefObject<SVGGElement | null>;
   style: FigureStyle;
+  spawn: { x: number; z: number; facing: number };
 }) {
   const rig = useRef<Rig>(null);
   const { camera, scene, size } = useThree();
+  // Arrive near the starting point, not all in one spot.
+  const [start] = useState(() => ({ x: spawn.x + (Math.random() - 0.5) * 4, z: spawn.z + (Math.random() - 0.5) * 3 }));
   const st = useRef({
     x: start.x,
     z: start.z,
     y: heightAt(start.x, start.z),
-    facing: Math.PI,
+    facing: spawn.facing,
+    zone: null as Zone | null,
     phase: 0,
     amp: 0,
     run: 0,
@@ -193,6 +206,11 @@ function Player({
         s.lastPlace = place;
         onPlace(place);
       }
+      const zone = zoneAt(s.x, s.y, s.z);
+      if (zone?.id !== s.zone?.id) {
+        s.zone = zone;
+        onZone(zone);
+      }
     }
     if (dotRef.current) dotRef.current.setAttribute("transform", `translate(${s.x} ${s.z}) rotate(${(-s.facing * 180) / Math.PI + 180})`);
   });
@@ -274,31 +292,60 @@ export default function Campus() {
   const [place, setPlace] = useState("Lower terrace");
   const [started, setStarted] = useState(false);
   const [touch, setTouch] = useState(false);
-  const [name, setName] = useState(() => {
-    try {
-      return localStorage.getItem("alu-live-name") ?? "";
-    } catch {
-      return "";
-    }
-  });
   const status = useNetStatus();
+  const { account } = useAuth();
   const [students, setStudents] = useState(0);
   const roster = useRoster();
-  // My look depends on the colour the server hands me, so it's settled once I'm in.
-  const [me, setMe] = useState<{ id: string; style: FigureStyle } | null>(null);
+  // I appear once the server has me on campus, looking like the avatar on my account.
+  const [me, setMe] = useState<{ id: string; style: FigureStyle; spawn: { x: number; z: number; facing: number }; welcome: string } | null>(null);
   useEffect(
     () =>
       net.onStatus(() => {
-        if (net.status === "online" && net.id) setMe({ id: net.id, style: visitor(net.color, net.id) });
+        const a = net.account;
+        if (net.status === "online" && net.id && a?.avatar) {
+          const s = startById(a.start ?? "");
+          setMe((m) => {
+            if (m && m.id === net.id) return m;
+            // Look the way you arrive facing (unless you're in the aerial view).
+            if (!input.current.aerial) input.current.yaw = s.facing;
+            return { id: net.id, style: styleFor(a.avatar!), spawn: s, welcome: s.welcome };
+          });
+        }
       }),
     [],
   );
+  // The game spot I'm standing in, and the game I've opened.
+  const [zone, setZone] = useState<Zone | null>(null);
+  const [playing, setPlaying] = useState<Zone | null>(null);
+  const zoneRef = useRef<Zone | null>(null);
+  zoneRef.current = zone;
+  const openGame = () => {
+    if (!zoneRef.current) return;
+    input.current.keys.clear();
+    input.current.active = false;
+    setPlaying(zoneRef.current);
+  };
+  const closeGame = () => {
+    input.current.active = true;
+    setPlaying(null);
+  };
+  const [welcome, setWelcome] = useState<string | null>(null);
+  useEffect(() => {
+    if (!me) return;
+    setWelcome(me.welcome);
+    const t = setTimeout(() => setWelcome(null), 9000);
+    return () => clearTimeout(t);
+  }, [me]);
 
   useEffect(() => {
     setTouch(window.matchMedia("(hover: none)").matches);
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement | null)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
+      if (k === "f" && input.current.active && zoneRef.current) {
+        openGame();
+        return;
+      }
       if (k === "v" && input.current.active) {
         const next = !input.current.aerial;
         input.current.aerial = next;
@@ -347,15 +394,10 @@ export default function Campus() {
     [],
   );
 
-  const begin = (view: "walk" | "aerial") => {
-    const n = name.trim().slice(0, 20);
-    if (!n) return;
-    try {
-      localStorage.setItem("alu-live-name", n);
-    } catch {}
-    if (net.status === "idle") net.connect(n);
+  const begin = (aerialView: boolean) => {
+    net.join();
     input.current.active = true;
-    toggleAerial(view === "aerial");
+    toggleAerial(aerialView);
     setStarted(true);
   };
 
@@ -371,15 +413,17 @@ export default function Campus() {
         >
           <Environment />
           <Architecture />
-          {me && <Player input={input} onPlace={setPlace} dotRef={dotRef} style={me.style} />}
+          {me && <Player key={me.id} input={input} onPlace={setPlace} onZone={setZone} dotRef={dotRef} style={me.style} spawn={me.spawn} />}
           <RemotePlayers />
           <Crowd onReady={setStudents} />
+          <GameSpots />
         </Canvas>
       </div>
 
       <header className="campus-hud">
         <p className="campus-kicker">Life at ALU</p>
         <p className="campus-place">{place}</p>
+        {started && account && <Wallet />}
         {started && (
           <p className={`campus-online${status === "online" ? "" : " off"}`}>
             <i />
@@ -406,45 +450,16 @@ export default function Campus() {
         </button>
       )}
 
-      {!started && (
-        <div className="campus-start">
-          <div>
-            <p className="campus-kicker">African Leadership University · Kigali · pilot</p>
-            <h1>Meet on campus.</h1>
-            <p className="campus-lede">
-              The ALU Kigali campus, shared. Everyone with the link walks the same terraces: see who’s around, say hello,
-              find your friends by the grand stairs.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                begin("walk");
-              }}
-            >
-              <input
-                className="campus-name"
-                value={name}
-                maxLength={20}
-                placeholder="Your first name"
-                aria-label="Your first name"
-                autoFocus
-                onChange={(e) => setName(e.target.value)}
-              />
-              <div className="campus-actions">
-                <button type="submit" disabled={!name.trim()}>
-                  Walk the campus →
-                </button>
-                <button type="button" className="ghost" disabled={!name.trim()} onClick={() => begin("aerial")}>
-                  See the whole campus
-                </button>
-              </div>
-            </form>
-            <p className="campus-help">
-              {touch ? "Left thumb to walk · drag anywhere to look" : "WASD or arrows to walk · Shift to run · drag or Q / E to look"}
-            </p>
-          </div>
-        </div>
+      {started && welcome && !playing && <p className="campus-welcome">{welcome}</p>}
+      {started && zone && !playing && !aerial && (
+        <button className="campus-play" onClick={openGame}>
+          <span>{zone.title}</span>
+          <b>{touch ? "Tap to play" : "Press F to play"}</b>
+        </button>
       )}
+      {playing && <GameHost zone={playing} onClose={closeGame} />}
+
+      {!started && <Onboarding onEnter={begin} />}
     </div>
   );
 }

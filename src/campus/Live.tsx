@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { Figure, poseFigure, setOutfit, type FigureStyle, type Rig } from "../three/Figure";
 import { net } from "../net";
 import type { ChatLine } from "../../shared/protocol";
+import type { Avatar } from "../../shared/avatar";
 
 const SKIN = ["#6e4130", "#5a3324", "#8a5a3c", "#4a2a1e", "#a0704f", "#7a4a33"];
 const TROUSERS = ["#1f1f21", "#2b3440", "#3a3a39", "#4a4038"];
@@ -29,6 +30,25 @@ export function visitor(color: string, id: string): FigureStyle {
   };
 }
 
+/** The figure for an avatar made in the creator. */
+export function styleFor(a: Avatar): FigureStyle {
+  const darkBottoms = a.colour === "#1a1a1b" ? "#2b3440" : "#1f1f21";
+  return {
+    skin: a.skin,
+    hair: a.hairColour,
+    top: a.colour,
+    jacket: a.colour,
+    trousers: a.outfit === "sport" ? a.accent : darkBottoms,
+    shoes: a.outfit === "smart" || a.outfit === "agbada" ? "#2a1d15" : "#f7f7f5",
+    sole: a.outfit === "smart" || a.outfit === "agbada" ? "#1b1410" : "#a8774f",
+    glasses: a.glasses,
+    hairStyle: a.hair,
+    body: a.body,
+    outfit: a.outfit,
+    accent: a.accent,
+  };
+}
+
 /** DOM elements for name labels, keyed by player id; avatars move them every frame. */
 export const labelEls = new Map<string, HTMLDivElement>();
 /** Minimap markers for other players. */
@@ -49,10 +69,10 @@ export function placeLabel(id: string, x: number, y: number, z: number, camera: 
   el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -100%)`;
 }
 
-export type Roster = { id: string; name: string; color: string }[];
+export type Roster = { id: string; name: string; color: string; look?: Avatar }[];
 
 function rosterSnapshot(): Roster {
-  return [...net.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color }));
+  return [...net.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, look: p.look }));
 }
 
 /** Re-renders when people join or leave (not on every movement tick). */
@@ -76,9 +96,9 @@ export function useNetStatus() {
   );
 }
 
-function RemoteAvatar({ id, color }: { id: string; color: string }) {
+function RemoteAvatar({ id, color, look }: { id: string; color: string; look?: Avatar }) {
   const rig = useRef<Rig>(null);
-  const style = useMemo(() => visitor(color, id), [color, id]);
+  const style = useMemo(() => (look ? styleFor(look) : visitor(color, id)), [color, id, look]);
   const { camera, size } = useThree();
   const st = useRef<{ x: number; y: number; z: number; f: number; phase: number; amp: number; run: number } | null>(null);
 
@@ -132,7 +152,7 @@ export function RemotePlayers() {
   return (
     <>
       {roster.map((p) => (
-        <RemoteAvatar key={p.id} id={p.id} color={p.color} />
+        <RemoteAvatar key={p.id + (p.look ? JSON.stringify(p.look) : "")} id={p.id} color={p.color} look={p.look} />
       ))}
     </>
   );

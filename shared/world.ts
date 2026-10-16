@@ -10,7 +10,10 @@ export function emailAllowed(email: string) {
   return at > 0 && ALLOWED_EMAIL_DOMAINS.includes(email.slice(at + 1).toLowerCase());
 }
 
-/** Where your story begins. It changes where you appear and your welcome, never your money. */
+/**
+ * Where your story begins. It changes where you appear and your welcome, never your money.
+ * facing: 0 looks down the hill (+z, toward the lawn), Math.PI looks up it.
+ */
 export type Start = { id: string; title: string; blurb: string; welcome: string; x: number; z: number; facing: number };
 
 export const STARTS: Start[] = [
@@ -18,10 +21,10 @@ export const STARTS: Start[] = [
     id: "lagos",
     title: "Arriving from Lagos",
     blurb: "Fresh off the flight for Ikaze. Suitcase, big plans, no idea where the library is.",
-    welcome: "Ikaze! Welcome to Kigali. Head down the access road to the upper terrace.",
-    x: 56,
-    z: -80,
-    facing: Math.PI,
+    welcome: "Ikaze! Welcome to Kigali. Your ride dropped you in the car park: head down the access road to campus.",
+    x: 38,
+    z: -72,
+    facing: 0,
   },
   {
     id: "kigali",

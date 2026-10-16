@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
 import { capsule, ContactShadow, geo, mat, seeded } from "./kit";
+import { BodyPieces, Fila, FULL_LENGTH, HairPieces, LowerSleeve, PRINTED, printMaterial, TorsoPieces, UpperSleeve, type HairKind, type OutfitKind } from "./outfits";
 
 export type Outfit = "tee" | "jacket";
 
@@ -23,8 +24,13 @@ export type FigureStyle = {
   sole: string;
   glasses: boolean;
   moustache?: boolean;
-  hairStyle: "afro" | "short";
+  hairStyle: HairKind;
   face?: boolean;
+  /** Avatar-creator options (see outfits.tsx). Without them the figure wears a plain tee. */
+  body?: "masc" | "fem";
+  outfit?: OutfitKind;
+  /** Second colour for prints and trims. */
+  accent?: string;
 };
 
 export const tejiri: FigureStyle = {
@@ -127,7 +133,7 @@ export function poseFigure(r: Rig, s: Pose) {
   r.head.rotation.x = s.headPitch + sit * 0.16 - jog * 0.08;
 }
 
-function hairPoints(style: "afro" | "short") {
+function hairPoints(style: HairKind) {
   const rand = seeded(style === "afro" ? 7 : 11);
   const pts: { p: THREE.Vector3; s: number }[] = [];
   if (style === "short") {
@@ -191,8 +197,13 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
     jacket: [...jacketParts.current],
   }));
 
+  const outfit: OutfitKind = style.outfit ?? "tee";
+  const fem = style.body === "fem";
+  const accent = style.accent ?? style.top;
   const skin = mat(style.skin, 0.62);
-  const top = mat(style.top, 0.95);
+  // Printed outfits use the wax-print fabric everywhere the plain top would go.
+  const top = PRINTED.has(outfit) ? printMaterial(style.top, accent) : mat(outfit === "smart" ? "#f4f2ee" : style.top, 0.95);
+  const fabric = outfit === "agbada" ? mat(style.top, 0.85) : outfit === "smart" ? mat(style.top, 0.7) : top;
   const leather = mat(style.jacket, 0.42, 0.12);
   const trousers = mat(style.trousers, 0.9);
   const shoe = mat(style.shoes, 0.5);
@@ -202,8 +213,9 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
   const dark = mat("#1b1a19", 0.35, 0.2);
   const isTejiri = !!style.stripes;
 
+  const curls = style.hairStyle === "afro" || style.hairStyle === "short";
   const hair = useMemo(() => {
-    const pts = hairPoints(style.hairStyle);
+    const pts = curls ? hairPoints(style.hairStyle) : [];
     const mesh = new THREE.InstancedMesh(geo.sphereLo, hairMat, pts.length);
     const m = new THREE.Matrix4();
     pts.forEach((h, i) => {
@@ -217,7 +229,7 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
     <group key={side} ref={side < 0 ? g.hipL : g.hipR} position={[side * 0.1, 0.68, 0]}>
       <mesh geometry={capsule(0.085, 0.2)} material={trousers} position={[0, -0.16, 0]} />
       <group ref={side < 0 ? g.kneeL : g.kneeR} position={[0, -0.32, 0]}>
-        <mesh geometry={capsule(0.075, 0.18)} material={trousers} position={[0, -0.13, 0]} />
+        <mesh geometry={capsule(0.075, 0.18)} material={outfit === "sport" ? skin : trousers} position={[0, -0.13, 0]} />
         {/* trainer: white upper, three stripes each side, heel tab, gum sole */}
         <mesh geometry={capsule(0.072, 0.11)} material={shoe} position={[0, -0.285, 0.05]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 1, 0.78]} />
         <mesh geometry={capsule(0.078, 0.12)} material={sole} position={[0, -0.325, 0.05]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 1, 0.32]} />
@@ -240,12 +252,14 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
   );
 
   const arm = (side: 1 | -1) => (
-    <group key={side} ref={side < 0 ? g.shL : g.shR} position={[side * 0.255, 0.42, 0]}>
+    <group key={side} ref={side < 0 ? g.shL : g.shR} position={[side * (fem ? 0.235 : 0.255), 0.42, 0]}>
       {/* t-shirt sleeve, then bare arm */}
       <mesh geometry={capsule(0.074, 0.06)} material={top} position={[0, -0.06, 0]} />
       <mesh geometry={capsule(0.056, 0.12)} material={skin} position={[0, -0.15, 0]} />
       <mesh ref={jacketRef} geometry={capsule(0.082, 0.15)} material={leather} position={[0, -0.13, 0]} visible={false} />
+      <UpperSleeve outfit={outfit} fabric={fabric} />
       <group ref={side < 0 ? g.elL : g.elR} position={[0, -0.27, 0]}>
+        <LowerSleeve outfit={outfit} fabric={fabric} />
         <mesh geometry={capsule(0.052, 0.13)} material={skin} position={[0, -0.11, 0]} />
         <mesh ref={jacketRef} geometry={capsule(0.066, 0.13)} material={leather} position={[0, -0.11, 0]} visible={false} />
         <mesh geometry={geo.sphere} material={skin} position={[0, -0.25, 0.005]} scale={[0.058, 0.066, 0.058]} />
@@ -257,12 +271,14 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
     <group ref={g.root}>
       {shadow && <ContactShadow scale={1.15} />}
       <group ref={g.body}>
-        <mesh geometry={geo.sphere} material={trousers} position={[0, 0.7, 0]} scale={[0.2, 0.13, 0.16]} />
+        <mesh geometry={geo.sphere} material={trousers} position={[0, 0.7, 0]} scale={[fem ? 0.22 : 0.2, 0.13, 0.16]} />
         {leg(-1)}
         {leg(1)}
+        {FULL_LENGTH.has(outfit) && <BodyPieces outfit={outfit} fabric={fabric} accent={accent} fem={fem} />}
         <group ref={g.torso} position={[0, 0.72, 0]}>
           {/* black t-shirt with a crew neck */}
-          <mesh geometry={capsule(0.2, 0.22)} material={top} position={[0, 0.22, 0]} scale={[1.1, 1, 0.82]} />
+          <mesh geometry={capsule(0.2, 0.22)} material={top} position={[0, 0.22, 0]} scale={[fem ? 1.0 : 1.1, 1, 0.82]} />
+          <TorsoPieces outfit={outfit} fabric={fabric} accent={accent} colour={style.top} />
           <mesh geometry={geo.torus} material={top} position={[0, 0.48, 0.01]} rotation={[Math.PI / 2 - 0.15, 0, 0]} scale={[0.085, 0.075, 0.5]} />
           {/* leather jacket, shown in some places */}
           <group ref={jacketRef} visible={false}>
@@ -283,12 +299,15 @@ export const Figure = forwardRef<Rig, { style: FigureStyle; shadow?: boolean }>(
           <group ref={g.head} position={[0, 0.83, 0]}>
             <mesh geometry={geo.sphere} material={skin} scale={[0.34, 0.355, 0.325]} />
             {/* hair: a dark base plus instanced curls for texture and volume */}
-            {style.hairStyle === "afro" ? (
+            {style.hairStyle === "afro" && (
               <mesh geometry={hairCap} material={hairMat} position={[0, 0.06, -0.04]} scale={[0.405, 0.385, 0.4]} rotation={[-0.42, 0, 0]} />
-            ) : (
+            )}
+            {style.hairStyle === "short" && (
               <mesh geometry={hairCap} material={hairMat} position={[0, 0.01, -0.01]} scale={[0.348, 0.36, 0.335]} rotation={[-0.34, 0, 0]} />
             )}
-            <primitive object={hair} />
+            {curls && <primitive object={hair} />}
+            <HairPieces hair={style.hairStyle} hairMat={hairMat} wrap={printMaterial(accent, style.top)} outfit={outfit} />
+            {outfit === "agbada" && style.hairStyle !== "headwrap" && <Fila colour={accent} />}
             {/* ears */}
             <mesh geometry={geo.sphere} material={skin} position={[0.336, -0.01, 0]} scale={[0.04, 0.065, 0.05]} />
             <mesh geometry={geo.sphere} material={skin} position={[-0.336, -0.01, 0]} scale={[0.04, 0.065, 0.05]} />
