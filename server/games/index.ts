@@ -6,8 +6,11 @@
 
 import type { GameId } from "../../shared/world";
 import { chess } from "./chess";
+import { poll } from "./poll";
 import { pool } from "./pool";
+import { quiz } from "./quiz";
 import { soloGame } from "./solo";
+import { startup } from "./startup";
 
 export type GamePlayer = { id: string; name: string; email: string };
 
@@ -43,4 +46,7 @@ export const HANDLERS: Partial<Record<GameId, GameHandler>> = {
   archery: soloGame("archery", (score) => Math.round(score / 2)),
   chess,
   pool,
+  quiz,
+  poll,
+  startup,
 };

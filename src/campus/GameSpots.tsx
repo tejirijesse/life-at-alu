@@ -4,7 +4,8 @@
 
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { net } from "../net";
 import { ZONES, type Zone } from "../../shared/world";
 import { surfaceAt } from "./indoors";
 
@@ -169,14 +170,47 @@ function ChessTable() {
   );
 }
 
+/** The library screen: "ALU QUIZ NIGHT", or the PIN to join while a quiz is gathering players. */
 function QuizScreen() {
-  const face = useMemo(() => label("ALU QUIZ NIGHT", "#0f2b55", "#ffd166"), []);
+  const [face] = useState(() => {
+    const c = document.createElement("canvas");
+    c.width = 512;
+    c.height = 288;
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return { c, t, m: new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, emissive: "#ffffff", emissiveMap: t, emissiveIntensity: 0.35 }) };
+  });
+  useEffect(() => {
+    const paint = (lines: [string, string]) => {
+      const g = face.c.getContext("2d")!;
+      g.fillStyle = "#0f2b55";
+      g.fillRect(0, 0, 512, 288);
+      g.fillStyle = "#ffd166";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.font = "bold 44px ui-monospace, Menlo, monospace";
+      g.fillText(lines[0], 256, 100);
+      g.fillStyle = "#ffffff";
+      g.font = "bold 64px ui-monospace, Menlo, monospace";
+      g.fillText(lines[1], 256, 190);
+      face.t.needsUpdate = true;
+    };
+    paint(["ALU QUIZ NIGHT", "Host a quiz"]);
+    return net.onGame("quiz", (d) => {
+      const s = d as { type: string; phase?: string; pin?: string | null; index?: number; total?: number };
+      if (s.type !== "screen") return;
+      if (s.phase === "lobby" && s.pin) paint(["JOIN WITH PIN", s.pin]);
+      else if (s.phase === "question" || s.phase === "reveal") paint(["QUIZ NIGHT", `Q ${(s.index ?? 0) + 1} / ${s.total}`]);
+      else if (s.phase === "podium") paint(["QUIZ NIGHT", "Final scores"]);
+      else paint(["ALU QUIZ NIGHT", "Host a quiz"]);
+    });
+  }, [face]);
   return (
     <group position={[0, 0, -3.2]}>
       <mesh material={M.dark} position={[0, 1.7, -0.04]}>
         <boxGeometry args={[3.2, 1.9, 0.06]} />
       </mesh>
-      <mesh material={face} position={[0, 1.7, 0]}>
+      <mesh material={face.m} position={[0, 1.7, 0]}>
         <planeGeometry args={[3.0, 1.7]} />
       </mesh>
     </group>

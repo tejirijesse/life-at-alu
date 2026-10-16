@@ -10,7 +10,10 @@ import { COIN, type GameId, type Zone } from "../../shared/world";
 import { net } from "../net";
 import Basketball from "./Basketball";
 import Chess from "./Chess";
+import Poll from "./Poll";
 import Pool from "./Pool";
+import Quiz from "./Quiz";
+import Startup from "./Startup";
 
 export type GameProps = { zone: Zone; onClose: () => void };
 
@@ -18,6 +21,9 @@ const GAMES: Partial<Record<GameId, (p: GameProps) => React.ReactNode>> = {
   basketball: Basketball,
   chess: Chess,
   pool: Pool,
+  quiz: Quiz,
+  poll: Poll,
+  startup: Startup,
 };
 
 /** What each game will be, for the ones still being built. */
