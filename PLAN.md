@@ -12,6 +12,43 @@ places and play live games together. ALU first; the rest of Kigali later.
 | **2 · Kigali Innovation City** | The streets around ALU generated from open map data; second "zone" with its own server room. | Zones load on demand; walking between them works. |
 | **3 · Kigali** | City-wide tiles, landmarks built by hand, public sign-up. | Safety, privacy and cost reviewed for public scale. |
 
+## Demo (now): accounts, avatars, wallet, games
+
+The first thing to show people, built on free tiers only. No paid services until the demo has been seen.
+
+**Joining.** Sign up with your name and ALU email (`@alustudent.com` or `@alueducation.com`), get a 6-digit
+code, enter it. Log in later with the same email and a new code. *Demo mode:* the code is shown on screen
+instead of emailed, and accounts live in a server-signed token kept in your browser (no database yet), so
+the same device keeps your avatar and coins across server restarts; a new device starts fresh. Real email
+codes and a database (Supabase free tier) come after the demo.
+
+**Avatar.** Starts blank. Choose body, skin tone, hair (afro, short, locs, braids, bun, headwrap, bald) and
+colour, and an outfit: casual tee, ALU hoodie, smart blazer, sportswear, kitenge shirt, Rwandan umushanana,
+Nigerian agbada, iro & buba. A live 3D preview turns as you choose.
+
+**Starting point.** Where your story begins, not how much you have: arriving from Lagos on Ikaze day, a
+Kigali local, living on campus, an international student, or staff. Everyone gets the same wallet.
+
+**Wallet.** 1,000 ALU Coins each, held by the server (clients can't edit balances). Earn by winning games
+and taking part; spend on entry fees. Solo-game payouts are capped so they can't be farmed.
+
+**Games.** Walk up to a spot, press E (or tap Play) and the game opens over the campus. Ideas come from
+@lifeatalu (One ALU staff-vs-students day, Ikaze, Love Week, ArtsFest, Clubs fair, Wellness):
+
+| Game | Where | Players |
+|---|---|---|
+| Basketball shootout | Court on the lawn | Solo, leaderboard |
+| Football penalties | Pitch on the lawn | Solo or 2 |
+| Archery | Range by the outbuilding | Solo, leaderboard |
+| 8-ball pool | Commons | 2 |
+| Chess | The open-air pods | 2 |
+| ALU Quiz Night (Kahoot-style) | Library | Host + everyone |
+| Poll voting | Notice board, front plaza | Everyone |
+| Startup competition | Enterprise terrace | Pitch, then everyone votes |
+
+Later ideas: tug of war (staff vs students), elevator-pitch and debate stages, share & paint wall,
+gratitude wall, Ikaze scavenger hunt, Clubs-fair stamps, Love Week compliment notes, daily crossword.
+
 ## Stack
 
 **Client:** Vite + React + React Three Fiber (the campus code from the portfolio, moved here). Web
