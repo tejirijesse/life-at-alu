@@ -7,6 +7,7 @@
 //   → { type: "vote", pitch } (toggles)   → { type: "remove", pitch }
 //   ← { type: "round", ... }   ← { type: "error", message }
 
+import * as progress from "../progress";
 import type { GameHandler, SystemContext } from "./index";
 import { cleanText, shortId } from "./text";
 
@@ -50,6 +51,7 @@ function endRound(ctx: SystemContext) {
   if (top && top.votes.size > 0) {
     const eligible = ranked.length >= 2;
     const paid = eligible && ctx.pay(PRIZE, `startup competition: ${top.name}`, top.byId) ? PRIZE : 0;
+    if (eligible) progress.award(top.by, "startup", `won the startup competition`, { xp: 100, game: 40 });
     lastWinner = { name: top.name, byName: top.byName, votes: top.votes.size, paid };
   } else lastWinner = null;
   round.endsAt = 0;
@@ -82,6 +84,7 @@ export const startup: GameHandler = {
         };
         if (!pitch.name || !pitch.oneLiner || !pitch.problem || !pitch.solution) return ctx.send({ type: "error", message: "Fill in the name, one-liner, problem and solution." });
         if (!round.endsAt) round.endsAt = Date.now() + ROUND_MS;
+        progress.awardOnce(me.email, `pitch:${round.endsAt}`, "pitch", "pitched a startup", { xp: 20 }, 4);
         round.pitches.push({ ...pitch, id: shortId(), by: me.email, byName: me.name, byId: me.id, at: Date.now(), votes: new Set() });
         publish(ctx);
         return;
@@ -91,7 +94,10 @@ export const startup: GameHandler = {
         if (target.by === me.email) return ctx.send({ type: "error", message: "You can't vote for your own pitch." });
         if (target.votes.has(me.email)) target.votes.delete(me.email);
         else if (votesUsed(me.email) >= VOTES) return ctx.send({ type: "error", message: `You've used all ${VOTES} votes. Take one back to move it.` });
-        else target.votes.add(me.email);
+        else {
+          target.votes.add(me.email);
+          progress.awardOnce(me.email, `pvote:${target.id}`, "vote", "backed a startup", { xp: 5 });
+        }
         publish(ctx);
         return;
       }

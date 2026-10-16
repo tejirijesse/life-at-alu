@@ -6,6 +6,7 @@
 //   → { type: "end", poll }   → { type: "remove", poll }
 //   ← { type: "polls", polls: [...] }   ← { type: "error", message }
 
+import * as progress from "../progress";
 import type { GameHandler, SystemContext } from "./index";
 import { cleanText, shortId } from "./text";
 
@@ -68,7 +69,9 @@ export const poll: GameHandler = {
         if (!question || options.length < 2) return ctx.send({ type: "error", message: "Add a question and at least two options." });
         if (new Set(options.map((o) => o.toLowerCase())).size !== options.length) return ctx.send({ type: "error", message: "Each option needs to be different." });
         const now = Date.now();
-        polls.push({ id: shortId(), question, options, votes: new Map(), by: me.email, byName: me.name, at: now, closesAt: now + OPEN_MS, closed: false });
+        const pollId = shortId();
+        progress.awardOnce(me.email, `poll:${pollId}`, "poll", "posted a poll", { xp: 10 }, 3);
+        polls.push({ id: pollId, question, options, votes: new Map(), by: me.email, byName: me.name, at: now, closesAt: now + OPEN_MS, closed: false });
         if (polls.length > KEEP) polls.splice(0, polls.length - KEEP);
         publish(ctx);
         return;
@@ -76,6 +79,7 @@ export const poll: GameHandler = {
       case "vote": {
         const option = Number(d.option);
         if (!target || target.closed || !Number.isInteger(option) || option < 0 || option >= target.options.length) return;
+        if (target.by !== me.email) progress.awardOnce(me.email, `vote:${target.id}`, "vote", "voted in a poll", { xp: 5 });
         target.votes.set(me.email, option);
         publish(ctx);
         return;

@@ -9,8 +9,12 @@ import { useTable } from "./useTable";
 
 type ChessState = {
   table: string;
-  white: { name: string } | null;
-  black: { name: string } | null;
+  white: { name: string; rating: number; games: number } | null;
+  black: { name: string; rating: number; games: number } | null;
+  /** Past games between these two, from white's side. */
+  h2h: { white: number; black: number; draws: number } | null;
+  rated: { white: { rating: number; delta: number }; black: { rating: number; delta: number } } | null;
+  rematch: [boolean, boolean];
   you: "w" | "b" | null;
   fen: string;
   clocks: { w: number; b: number };
@@ -21,6 +25,8 @@ type ChessState = {
   drawOffer: 0 | 1 | null;
   prize: number;
 };
+
+const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
 
 const GLYPH: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const FILES = "abcdefgh";
@@ -79,6 +85,7 @@ export default function ChessGame({ zone }: GameProps) {
         <span>
           <i className={side === "w" ? "ch-w" : "ch-b"}>♚</i> {p?.name ?? "Empty seat"}
           {state.you === side && " (you)"}
+          {p && <small className="ch-rating">{p.games ? `♟ ${p.rating}` : "unrated"}</small>}
         </span>
         <b>{clock(live[side])}</b>
       </div>
@@ -145,9 +152,27 @@ export default function ChessGame({ zone }: GameProps) {
         {state.status === "over" && (
           <>
             <p className="ch-result">{state.result}</p>
-            <button onClick={() => send({ type: "sit" })}>Play again →</button>
+            {state.rated && (
+              <p className="ch-rated">
+                {state.white?.name} {signed(state.rated.white.delta)} → {state.rated.white.rating} · {state.black?.name} {signed(state.rated.black.delta)} → {state.rated.black.rating}
+              </p>
+            )}
+            {!state.rated && <p className="campus-help">Too short to be rated (each side needs two moves).</p>}
+            {state.you && state.white && state.black ? (
+              <button onClick={() => send({ type: "rematch" })} disabled={state.rematch[mySeat as 0 | 1]}>
+                {state.rematch[mySeat as 0 | 1] ? "Waiting for them to accept…" : state.rematch[1 - (mySeat as 0 | 1)] ? "Accept rematch →" : "Rematch (colours swap) →"}
+              </button>
+            ) : (
+              <button onClick={() => send({ type: "sit" })}>Play again →</button>
+            )}
           </>
         )}
+        {state.h2h && (state.h2h.white || state.h2h.black || state.h2h.draws) ? (
+          <p className="ch-h2h">
+            Head to head: {state.white?.name} {state.h2h.white} · {state.black?.name} {state.h2h.black}
+            {state.h2h.draws ? ` · ${state.h2h.draws} drawn` : ""}
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -1,13 +1,17 @@
 // Chess at the open-air pods. Two players, 5 minutes each, full rules (chess.js checks every
 // move on the server, so nobody can play an illegal one). Winner gets 30 coins; no entry fee.
+// Every finished game is rated (progress.ts) and counts towards the two players' rivalry.
 //
 //   → open / close / sit (tables.ts)
 //   → { type: "move", table, from: "e2", to: "e4", promotion?: "q" }
+//   → { type: "rematch", table }  (after a game; colours swap when both ask)
 //   → { type: "resign", table }   → { type: "draw", table }  (offer, or accept an offer)
 //   ← { type: "state", table, white, black, fen, you, clocks, status, result, lastMove, drawOffer }
 
 import { Chess } from "chess.js";
 import { ZONES } from "../../shared/world";
+import * as accounts from "../accounts";
+import * as progress from "../progress";
 import type { GameHandler, SystemContext } from "./index";
 import { sendState, tables, type Table } from "./tables";
 
@@ -23,9 +27,13 @@ type ChessGame = {
   lastMove: { from: string; to: string } | null;
   /** Seat that offered a draw. */
   drawOffer: 0 | 1 | null;
+  /** Rating changes from the finished game. */
+  rated: { white: { rating: number; delta: number }; black: { rating: number; delta: number } } | null;
+  /** Who wants a rematch after the game. */
+  rematch: [boolean, boolean];
 };
 
-const fresh = (): ChessGame => ({ chess: new Chess(), clocks: { w: CLOCK_MS, b: CLOCK_MS }, since: 0, result: null, lastMove: null, drawOffer: null });
+const fresh = (): ChessGame => ({ chess: new Chess(), clocks: { w: CLOCK_MS, b: CLOCK_MS }, since: 0, result: null, lastMove: null, drawOffer: null, rated: null, rematch: [false, false] });
 const boards = tables(fresh, (id) => ZONES.some((z) => z.game === "chess" && z.id === id));
 
 /** Time left for each side right now (the side to move is running). */
@@ -35,13 +43,27 @@ function clocksNow(t: Table<ChessGame>) {
   return { w: Math.max(0, c.w), b: Math.max(0, c.b) };
 }
 
+/** A seated player as the board shows them: name and rating. */
+function side(t: Table<ChessGame>, seat: 0 | 1) {
+  const s = t.seats[seat];
+  if (!s) return null;
+  const a = accounts.get(s.email);
+  return { name: s.name, rating: a ? Math.round(progress.progressOf(a).chess.rating) : 1200, games: a ? progress.progressOf(a).chess.games : 0 };
+}
+
 function view(t: Table<ChessGame>, playerId: string) {
   const seat = boards.seatOf(t, playerId);
+  const [w, b] = t.seats;
+  // Head to head, from white's side: past games between these two.
+  const h2h = w && b && w.email !== b.email ? progress.rivalryOf(w.email, b.email) : null;
   return {
     type: "state",
     table: t.id,
-    white: t.seats[0] ? { name: t.seats[0].name } : null,
-    black: t.seats[1] ? { name: t.seats[1].name } : null,
+    white: side(t, 0),
+    black: side(t, 1),
+    h2h: h2h && { white: h2h.wins, black: h2h.losses, draws: h2h.draws },
+    rated: t.game.rated,
+    rematch: t.game.rematch,
     you: seat === 0 ? "w" : seat === 1 ? "b" : null,
     fen: t.game.chess.fen(),
     clocks: clocksNow(t),
@@ -66,6 +88,9 @@ function finish(ctx: SystemContext, t: Table<ChessGame>, winner: 0 | 1 | null, w
     const w = t.seats[winner];
     if (w) ctx.pay(PRIZE, `chess win (${why})`, w.id);
   }
+  const [white, black] = t.seats;
+  // Rated once both sides have moved twice, so an instant resign can't farm XP or rating.
+  if (white && black && t.game.chess.history().length >= 4) t.game.rated = progress.chessResult(white.email, black.email, winner === null ? 0.5 : winner === 0 ? 1 : 0);
   publish(ctx, t);
 }
 
@@ -126,6 +151,20 @@ export const chess: GameHandler = {
         if (g.chess.isInsufficientMaterial()) return finish(ctx, t, null, "insufficient material");
         if (g.chess.isThreefoldRepetition()) return finish(ctx, t, null, "threefold repetition");
         if (g.chess.isDraw()) return finish(ctx, t, null, "fifty-move rule");
+        publish(ctx, t);
+        return;
+      }
+      case "rematch": {
+        // Both players still at the board after a game: play again with colours swapped.
+        if (t.status !== "over" || seat === -1 || !t.seats[0] || !t.seats[1]) return;
+        t.game.rematch[seat] = true;
+        if (t.game.rematch[0] && t.game.rematch[1]) {
+          const swapped: typeof t.seats = [t.seats[1], t.seats[0]];
+          boards.reset(t);
+          t.seats = swapped;
+          t.status = "playing";
+          t.game.since = Date.now();
+        }
         publish(ctx, t);
         return;
       }

@@ -11,6 +11,7 @@
 //   ← { type: "state", ... } to people with the quiz open    ← { type: "screen", ... } to everyone
 
 import { ZONES } from "../../shared/world";
+import * as progress from "../progress";
 import type { GameHandler, GamePlayer, SystemContext } from "./index";
 import { SETS, type Question } from "./quiz-sets";
 import { cleanText } from "./text";
@@ -23,7 +24,7 @@ const MAX_CUSTOM = 10;
 const LOBBY_IDLE_MS = 15 * 60_000;
 
 type Phase = "idle" | "lobby" | "question" | "reveal" | "podium";
-type Player = { id: string; name: string; score: number; answer: { choice: number; at: number } | null; last: number };
+type Player = { id: string; email: string; name: string; score: number; correct: number; answer: { choice: number; at: number } | null; last: number };
 
 const q = {
   phase: "idle" as Phase,
@@ -115,6 +116,7 @@ function reveal(ctx: SystemContext) {
       const speed = 1 - Math.min(1, (p.answer.at - q.started) / QUESTION_MS);
       p.last = 500 + Math.round(500 * speed);
       p.score += p.last;
+      p.correct++;
     }
   }
   q.phase = "reveal";
@@ -129,6 +131,13 @@ function podium(ctx: SystemContext) {
   if (q.builtIn && ranked.length >= 2)
     ranked.slice(0, PRIZES.length).forEach((p, i) => {
       if (p.score > 0 && ctx.pay(PRIZES[i], `quiz night #${i + 1}`, p.id)) q.paid.push({ name: p.name, coins: PRIZES[i] });
+    });
+  // XP and Academic Titans points, from the built-in sets only (custom questions could be rigged),
+  // for up to four quiz nights a day.
+  if (q.builtIn)
+    ranked.forEach((p, i) => {
+      const bonus = ranked.length >= 2 && p.score > 0 ? ([50, 30, 20][i] ?? 0) : 0;
+      progress.awardOnce(p.email, `quiz:${q.pin}:${q.started}`, "quiz", `quiz night: ${p.correct} right`, { xp: 10 * p.correct + bonus, quiz: Math.round(p.score / 100) }, 4);
     });
   publish(ctx);
 }
@@ -190,7 +199,7 @@ export const quiz: GameHandler = {
         if (q.phase !== "lobby" && q.phase !== "question" && q.phase !== "reveal") return;
         if (isHost) return;
         if (String(d.pin ?? "").trim() !== q.pin) return ctx.send({ type: "error", message: "That PIN isn't right. It's on the library screen." });
-        if (!q.players.has(me.id)) q.players.set(me.id, { id: me.id, name: me.name, score: 0, answer: null, last: 0 });
+        if (!q.players.has(me.id)) q.players.set(me.id, { id: me.id, email: me.email, name: me.name, score: 0, correct: 0, answer: null, last: 0 });
         publish(ctx);
         return;
       case "start":
