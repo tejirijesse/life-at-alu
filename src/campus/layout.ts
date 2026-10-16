@@ -17,8 +17,11 @@ export type Rect = { x0: number; x1: number; z0: number; z1: number };
 
 export type Plaza = Rect & { y: number; name: string; paving?: string };
 
-/** Stairs or a ramp: height goes from `yFrom` at z0 to `yTo` at z1. */
-export type Ramp = Rect & { yFrom: number; yTo: number; along: "z" | "x"; stairs: boolean; name: string };
+/**
+ * Stairs or a ramp: height goes from `yFrom` at z0 to `yTo` at z1, levelling out on any
+ * landings on the way, so a long stair can stop at each terrace it passes.
+ */
+export type Ramp = Rect & { yFrom: number; yTo: number; along: "z" | "x"; stairs: boolean; name: string; landings?: { y: number; z0: number; z1: number }[] };
 
 export type Block = Rect & {
   base: number;
@@ -65,11 +68,18 @@ export const plazas: Plaza[] = [
   { name: "Front plaza", x0: -56, x1: 56, z0: 0, z1: 26, y: L.front },
 ];
 
+// The long stairs land at the spine and mid-terrace levels, so every terrace (and every
+// building door on it) can be reached on foot.
+const cascade = [
+  { y: L.spine, z0: -28.5, z1: -15.5 },
+  { y: L.mid, z0: g(-1), z1: -6.7 },
+];
+
 export const ramps: Ramp[] = [
   // The grand stairs: one module wide, from the upper terrace to the front plaza.
-  { name: "Grand stairs", x0: -G / 2, x1: G / 2, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true },
-  { name: "West stairs", x0: -56, x1: -51, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true },
-  { name: "East stairs", x0: 51, x1: 56, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true },
+  { name: "Grand stairs", x0: -G / 2, x1: G / 2, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true, landings: cascade },
+  { name: "West stairs", x0: -56, x1: -51, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true, landings: cascade },
+  { name: "East stairs", x0: 51, x1: 56, z0: g(-4), z1: 0, yFrom: L.upper, yTo: L.front, along: "z", stairs: true, landings: cascade },
   { name: "West lawn steps", x0: -40, x1: -26, z0: 26, z1: 31, yFrom: L.front, yTo: -0.3, along: "z", stairs: true },
   { name: "East lawn steps", x0: 26, x1: 40, z0: 26, z1: 31, yFrom: L.front, yTo: -0.3, along: "z", stairs: true },
   { name: "Access road", x0: 50, x1: 62, z0: -98, z1: -52, yFrom: L.parking, yTo: L.upper, along: "z", stairs: false },
@@ -156,22 +166,35 @@ export const outbuilding = { x: -48, z: 52, w: 8, d: 5, h: 3 };
 
 const inside = (r: Rect, x: number, z: number) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
 
+/** Height along a ramp at z: flights between landings, flat on the landings themselves. */
+export function rampY(r: Ramp, z: number) {
+  const pts: [number, number][] = [[r.z0, r.yFrom]];
+  for (const l of r.landings ?? []) pts.push([l.z0, l.y], [l.z1, l.y]);
+  pts.push([r.z1, r.yTo]);
+  for (let k = 0; k < pts.length - 1; k++) {
+    const [za, ya] = pts[k];
+    const [zb, yb] = pts[k + 1];
+    if (z > zb && k < pts.length - 2) continue;
+    if (ya === yb) return ya;
+    const y = ya + ((yb - ya) * (z - za)) / (zb - za);
+    if (!r.stairs) return y;
+    // Steps of about 18 cm, counted from the flight's top so they meet each landing exactly.
+    const n = Math.max(1, Math.round(Math.abs(ya - yb) / 0.18));
+    const rise = (ya - yb) / n;
+    return ya - Math.round((ya - y) / rise) * rise;
+  }
+  return r.yTo;
+}
+
 /** Walkable surface height at a point. */
 export function heightAt(x: number, z: number) {
-  for (const r of ramps) {
-    if (inside(r, x, z)) {
-      const t = (z - r.z0) / (r.z1 - r.z0);
-      const y = r.yFrom + (r.yTo - r.yFrom) * t;
-      return r.stairs ? Math.round(y / 0.18) * 0.18 : y;
-    }
-  }
+  for (const r of ramps) if (inside(r, x, z)) return rampY(r, z);
   for (const p of plazas) if (inside(p, x, z)) return p.y;
   return terrain(x, z);
 }
 
+/** Ground-level obstacles outdoors. Buildings and their pods collide in 3D: see indoors.ts. */
 export const colliders: Rect[] = [
-  ...blocks.map((b) => ({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 })),
-  ...drums.map((d) => ({ x0: d.x - d.r, x1: d.x + d.r, z0: d.z - d.r, z1: d.z + d.r })),
   ...planters.map((p) => ({ x0: p.x - p.r, x1: p.x + p.r, z0: p.z - p.r, z1: p.z + p.r })),
   ...openPods.map((p) => ({ x0: p.x - POD_R, x1: p.x + POD_R, z0: p.z - POD_R, z1: p.z + POD_R })),
   { x0: spiral.x - spiral.r, x1: spiral.x + spiral.r, z0: spiral.z - spiral.r, z1: spiral.z + spiral.r },

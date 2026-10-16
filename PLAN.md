@@ -1,4 +1,4 @@
-# ALU Campus Live — plan
+# Life at ALU — plan
 
 A shared, walkable ALU Kigali campus where students meet friends, chat, check in at
 places and play live games together. ALU first; the rest of Kigali later.

@@ -1,10 +1,11 @@
-// ALU Campus Live — realtime server (prototype).
+// Life at ALU — realtime server (prototype).
 //
 // One shared room: the campus. Clients join with a display name, stream their position,
 // and receive everyone else's at TICK_HZ. Campus-wide chat with basic rate limiting.
 // No accounts yet: Phase 1 adds ALU sign-in (see PLAN.md) and moves this to Colyseus.
 
 import { WebSocketServer, type WebSocket } from "ws";
+import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { SERVER_PORT, TICK_HZ, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
 
@@ -20,7 +21,26 @@ const clients = new Map<string, Client>();
 const chat: ChatLine[] = [];
 let colorIndex = 0;
 
-const wss = new WebSocketServer({ port: Number(process.env.WS_PORT) || SERVER_PORT });
+// WS_PORT only: a PORT meant for the web page (dev tools often set one) must not move us.
+// Hosts that hand out PORT map it in the start command (see render.yaml).
+const port = Number(process.env.WS_PORT) || SERVER_PORT;
+// In production, only the campus site may connect: ALLOWED_ORIGINS="https://life-at-alu.vercel.app,…".
+const allowed = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// Plain HTTP answers health checks; WebSocket upgrades go to the campus room.
+const http = createServer((req, res) => {
+  res.writeHead(200, { "content-type": "text/plain" });
+  res.end(`Life at ALU realtime server: ${clients.size} connected\n`);
+});
+const wss = new WebSocketServer({
+  server: http,
+  maxPayload: 4096,
+  verifyClient: ({ origin }: { origin: string }) => !allowed.length || allowed.includes(origin),
+});
+http.listen(port);
 
 const send = (ws: WebSocket, msg: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
 const broadcast = (msg: ServerMsg, except?: string) => {
@@ -112,4 +132,4 @@ setInterval(() => {
   for (const c of clients.values()) if (c.lastSeen < cutoff) c.ws.terminate();
 }, 10_000);
 
-console.log(`ALU Campus Live server on ws://localhost:${Number(process.env.WS_PORT) || SERVER_PORT}`);
+console.log(`Life at ALU server on ws://localhost:${port}${allowed.length ? ` (origins: ${allowed.join(", ")})` : ""}`);
