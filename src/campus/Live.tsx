@@ -5,7 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Figure, poseFigure, setOutfit, type FigureStyle, type Rig } from "../three/Figure";
 import { net } from "../net";
-import type { ChatLine } from "../../shared/protocol";
+import type { ChatLine, Tag } from "../../shared/protocol";
 import type { Avatar } from "../../shared/avatar";
 
 const SKIN = ["#6e4130", "#5a3324", "#8a5a3c", "#4a2a1e", "#a0704f", "#7a4a33"];
@@ -69,10 +69,10 @@ export function placeLabel(id: string, x: number, y: number, z: number, camera: 
   el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -100%)`;
 }
 
-export type Roster = { id: string; name: string; color: string; look?: Avatar }[];
+export type Roster = { id: string; name: string; color: string; look?: Avatar; tag?: Tag }[];
 
 function rosterSnapshot(): Roster {
-  return [...net.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, look: p.look }));
+  return [...net.players.values()].map((p) => ({ id: p.id, name: p.name, color: p.color, look: p.look, tag: p.tag }));
 }
 
 /** Re-renders when people join or leave (not on every movement tick). */
@@ -82,7 +82,7 @@ export function useRoster() {
     (cb) => net.onRoster(cb),
     () => {
       const list = rosterSnapshot();
-      const key = list.map((p) => p.id + p.name).join("|");
+      const key = list.map((p) => `${p.id}${p.name}${p.tag?.level}${p.tag?.chess}`).join("|");
       if (key !== cache.current.key) cache.current = { key, list };
       return cache.current.list;
     },
@@ -198,6 +198,12 @@ export function Labels({ selfId }: { selfId: string }) {
               <>
                 <b style={{ background: p.color }} />
                 {p.name}
+                {p.tag && (
+                  <small className="label-tag">
+                    Lv {p.tag.level} · {p.tag.title}
+                    {p.tag.chess !== null && ` · ♟ ${p.tag.chess}`}
+                  </small>
+                )}
               </>
             )}
           </div>

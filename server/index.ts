@@ -9,7 +9,12 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { SERVER_PORT, TICK_HZ, type Account, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
 import { startById, type GameId } from "../shared/world";
+import { indoorName } from "../src/campus/indoors";
+import { placeName } from "../src/campus/layout";
+import { levelFor, titleFor } from "../shared/levels";
 import * as accounts from "./accounts";
+import * as progress from "./progress";
+import { store } from "./store";
 import { HANDLERS, type GameContext, type GamePlayer, type SystemContext } from "./games";
 
 const PALETTE = ["#d1495b", "#2e86ab", "#f18f01", "#3b8b5a", "#7b5ea7", "#c2185b", "#00897b", "#5d6d7e", "#e07a5f", "#3d405b"];
@@ -26,6 +31,8 @@ type Client = {
   lastChat: number;
   lastSeen: number;
   authStarts: number[];
+  /** When we last checked which named place they're in (for exploring XP). */
+  lastPlace: number;
 };
 
 const clients = new Map<string, Client>();
@@ -51,6 +58,11 @@ const wss = new WebSocketServer({
   maxPayload: 8192,
   verifyClient: ({ origin }: { origin: string }) => !allowed.length || allowed.includes(origin),
 });
+// Saved accounts, progress and rivalries first, then open the doors.
+const saved = await store.load();
+accounts.seed(saved.accounts);
+progress.seed(saved.events, saved.rivalries);
+console.log(`store: ${store.name}, ${saved.accounts.length} accounts, ${saved.events.length} recent events`);
 http.listen(port);
 
 const send = (ws: WebSocket, msg: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(msg));
@@ -68,6 +80,21 @@ function walletChanged(a: Account, delta: number, reason: string) {
   const token = accounts.tokenFor(a);
   for (const c of connectionsOf(a.email)) send(c.ws, { t: "wallet", coins: a.coins, delta, reason, token });
 }
+
+/** Progress changed: tell that person (XP toast, level bar) and, if their name tag changed, everyone. */
+progress.onProgress((a, gained, reason, levelUp, tagChanged) => {
+  const p = progress.progressOf(a);
+  const level = levelFor(p.xp);
+  const token = accounts.tokenFor(a);
+  for (const c of connectionsOf(a.email)) send(c.ws, { t: "progress", progress: p, level, title: titleFor(level), gained, reason, levelUp, token });
+  if (!tagChanged) return;
+  const tag = progress.tagOf(a);
+  for (const [id, c] of clients)
+    if (c.email === a.email && c.state) {
+      c.state.tag = tag;
+      broadcast({ t: "tag", id, tag });
+    }
+});
 
 const gamePlayer = (id: string, c: Client): GamePlayer => ({ id, name: c.state?.name ?? "", email: c.email ?? "" });
 const onCampus = () => [...clients.entries()].filter(([, c]) => c.state && c.email).map(([id, c]) => gamePlayer(id, c));
@@ -114,7 +141,7 @@ function gameContext(game: string, id: string, c: Client): GameContext {
 
 wss.on("connection", (ws) => {
   const id = randomUUID().slice(0, 8);
-  const client: Client = { ws, email: null, state: null, lastChat: 0, lastSeen: Date.now(), authStarts: [] };
+  const client: Client = { ws, email: null, state: null, lastChat: 0, lastSeen: Date.now(), authStarts: [], lastPlace: 0 };
   clients.set(id, client);
 
   const signedIn = (account: Account, isNew: boolean) => {
@@ -179,7 +206,7 @@ wss.on("connection", (ws) => {
         }
         const start = startById(account.start ?? "");
         const color = PALETTE[colorIndex++ % PALETTE.length];
-        client.state = { id, name: account.name, color, x: start.x, y: 0, z: start.z, f: start.facing, m: 0, r: 0, look: account.avatar };
+        client.state = { id, name: account.name, color, x: start.x, y: 0, z: start.z, f: start.facing, m: 0, r: 0, look: account.avatar, tag: progress.tagOf(account) };
         send(ws, {
           t: "welcome",
           id,
@@ -203,6 +230,12 @@ wss.on("connection", (ws) => {
       s.f = finite(msg.f, -100, 100);
       s.m = finite(msg.m, 0, 1);
       s.r = finite(msg.r, 0, 1);
+      // Exploring: the first visit to each named place earns XP (checked at most once a second).
+      const now = Date.now();
+      if (client.email && now - client.lastPlace > 1000) {
+        client.lastPlace = now;
+        progress.visit(client.email, indoorName(s.x, s.z, s.y) ?? placeName(s.x, s.z));
+      }
       return;
     }
 
@@ -218,6 +251,11 @@ wss.on("connection", (ws) => {
       chat.push(line);
       if (chat.length > CHAT_HISTORY) chat.shift();
       broadcast({ t: "chat", line });
+      return;
+    }
+
+    if (msg.t === "ranks") {
+      if (client.email) send(ws, { t: "ranks", ...progress.ranks(client.email) });
       return;
     }
 
@@ -238,9 +276,9 @@ wss.on("connection", (ws) => {
   });
 });
 
-// Everyone's positions, TICK_HZ times a second (looks are only sent on join).
+// Everyone's positions, TICK_HZ times a second (looks and name tags are sent on join and on change).
 setInterval(() => {
-  const players = [...clients.values()].filter((c) => c.state).map(({ state }) => ({ ...state!, look: undefined }));
+  const players = [...clients.values()].filter((c) => c.state).map(({ state }) => ({ ...state!, look: undefined, tag: undefined }));
   if (players.length) broadcast({ t: "state", players });
 }, 1000 / TICK_HZ);
 

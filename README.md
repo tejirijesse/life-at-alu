@@ -37,6 +37,14 @@ Enter (or T) to chat, Esc to stop typing. On phones: left thumb on the joystick,
   lawn). Positions come from the student's number and the wall clock, so every browser sees the same crowd
   without any server traffic. Drawn as eight instanced meshes.
 
+- `server/progress.ts` + `shared/levels.ts` — progression: XP and levels (status titles from New Arrival to
+  ALU Legend), Elo chess ratings and head-to-head rivalries, exploring XP, and the leaderboards (Campus Legends,
+  Academic Titans, Gaming Champions, Chess Masters, Wealth), weekly from Monday 00:00 Kigali and all time.
+  XP comes from playing, not coins: wealth has its own board and never counts towards a level. Solo games,
+  quizzes and polls have daily or hourly caps so nothing can be farmed.
+- `server/store.ts` — where accounts, XP events and rivalries are kept: Postgres when `DATABASE_URL` is set
+  (tables are created on first start), otherwise `data/store.json` locally.
+
 `VITE_SERVER_URL` points the client at a deployed server; `WS_PORT` changes the server's port.
 
 ## Deploy
@@ -46,4 +54,7 @@ Enter (or T) to chat, Esc to stop typing. On phones: left thumb on the joystick,
 - **Realtime server → Render** (Vercel can't keep a WebSocket server running). In Render: New → Blueprint → this repo
   (`render.yaml`). Set `ALLOWED_ORIGINS` to the Vercel site's URL(s), comma-separated, so only the campus can connect.
   On the free plan it sleeps after 15 idle minutes; the client keeps retrying while it wakes (up to about a minute).
+- **Saved progress → Postgres** (Supabase's free plan works). Set `DATABASE_URL` in the Render service's
+  Environment tab to the Session pooler connection string. Without it, the free server forgets XP and boards
+  whenever it sleeps.
 - The test bot sends no Origin header, so it can only join a server without `ALLOWED_ORIGINS` (e.g. locally).

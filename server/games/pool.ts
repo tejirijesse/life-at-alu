@@ -9,6 +9,7 @@
 
 import { canPlace, clone, judge, rack, remaining, simulate, W, H, type Ball, type Group, type Shot } from "../../shared/pool";
 import { ZONES } from "../../shared/world";
+import * as progress from "../progress";
 import type { GameHandler, SystemContext } from "./index";
 import { sendState, tables, type Table } from "./tables";
 
@@ -66,6 +67,11 @@ function win(ctx: SystemContext, t: Table<PoolGame>, seat: 0 | 1, why: string) {
   const w = t.seats[seat];
   if (w && g.pot > 0) ctx.pay(g.pot, `pool win (${why})`, w.id);
   g.pot = 0;
+  const l = t.seats[1 - seat];
+  if (w && l && w.email !== l.email) {
+    progress.award(w.email, "pool", "pool win", { xp: 30, game: 25 });
+    progress.award(l.email, "pool", "pool game", { xp: 12 });
+  }
   publish(ctx, t);
 }
 

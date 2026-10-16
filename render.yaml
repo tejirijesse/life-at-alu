@@ -17,3 +17,7 @@ services:
       # Demo mode: sign-in codes are shown on screen instead of emailed. Set to 0 once email is set up.
       - key: DEMO_CODES
         value: "1"
+      # Postgres for accounts, XP and leaderboards (Supabase free plan: the Session pooler
+      # connection string). Without it, everything is forgotten when the free server sleeps.
+      - key: DATABASE_URL
+        sync: false

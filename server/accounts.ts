@@ -1,13 +1,15 @@
 // Accounts, sign-in codes and the wallet.
 //
-// Demo mode (DEMO_CODES on, the default): codes are shown on screen instead of emailed, and there
-// is no database. Accounts live in memory, and each browser keeps a signed copy (a token) that it
-// hands back when it reconnects, so a restart forgets nobody who comes back on the same device.
+// Demo mode (DEMO_CODES on, the default): codes are shown on screen instead of emailed. Accounts
+// are loaded from the store (store.ts: Postgres, or a local file) at start-up and written back on
+// every change. Each browser also keeps a signed copy (a token) that it hands back when it
+// reconnects, so even without a database a restart forgets nobody who returns on the same device.
 // The signature means a browser can't edit its own coins: change one byte and the token is refused.
 
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { cleanAvatar } from "../shared/avatar";
-import type { Account } from "../shared/protocol";
+import type { Account, Progress } from "../shared/protocol";
+import { store } from "./store";
 import { emailAllowed, MAX_SOLO_PAYOUT, MAX_SOLO_PAYOUTS_PER_HOUR, STARTING_COINS, STARTS } from "../shared/world";
 
 export const DEMO_CODES = process.env.DEMO_CODES !== "0";
@@ -35,7 +37,7 @@ export function tokenFor(a: Account) {
 }
 
 function readToken(token: unknown): Account | null {
-  if (typeof token !== "string" || token.length > 4000) return null;
+  if (typeof token !== "string" || token.length > 7000) return null;
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
   const want = Buffer.from(sign(body));
@@ -49,6 +51,26 @@ function readToken(token: unknown): Account | null {
 }
 
 export const get = (email: string) => accounts.get(email);
+export const all = () => [...accounts.values()];
+
+/** A fresh progress record, for new accounts and ones made before progression existed. */
+export const freshProgress = (): Progress => ({ xp: 0, chess: { rating: 1200, games: 0, wins: 0 }, quizPoints: 0, gamePoints: 0, places: [] });
+
+/** Fill in anything an older account is missing. */
+function upgrade(a: Account): Account {
+  if (!a.progress) a.progress = freshProgress();
+  return a;
+}
+
+/** Save an account (write-through to the database, or the local file). */
+export function persist(a: Account) {
+  store.saveAccount(a);
+}
+
+/** Load saved accounts at start-up. */
+export function seed(list: Account[]) {
+  for (const a of list) accounts.set(a.email, upgrade(a));
+}
 
 export const normaliseEmail = (e: unknown) => String(e ?? "").trim().toLowerCase().slice(0, 120);
 
@@ -84,8 +106,9 @@ export function verifyCode(rawEmail: unknown, rawCode: unknown): Result<{ accoun
   let account = accounts.get(email);
   const isNew = !account;
   if (!account) {
-    account = { email, name: entry.name ?? email.split("@")[0], avatar: null, start: null, coins: STARTING_COINS, createdAt: Date.now(), v: 1 };
+    account = { email, name: entry.name ?? email.split("@")[0], avatar: null, start: null, coins: STARTING_COINS, createdAt: Date.now(), progress: freshProgress(), v: 1 };
     accounts.set(email, account);
+    persist(account);
   }
   return { ok: true, value: { account, isNew } };
 }
@@ -96,7 +119,9 @@ export function resume(token: unknown): Account | null {
   if (!fromToken || !emailAllowed(fromToken.email)) return null;
   const known = accounts.get(fromToken.email);
   if (known && known.v >= fromToken.v) return known;
-  accounts.set(fromToken.email, fromToken);
+  // The browser's copy is newer (the server lost it, e.g. no database yet): adopt and save it.
+  accounts.set(fromToken.email, upgrade(fromToken));
+  persist(fromToken);
   return fromToken;
 }
 
@@ -106,6 +131,7 @@ export function saveProfile(email: string, rawAvatar: unknown, rawStart: unknown
   a.avatar = cleanAvatar(rawAvatar);
   a.start = STARTS.some((s) => s.id === rawStart) ? String(rawStart) : STARTS[1].id;
   a.v++;
+  persist(a);
   return a;
 }
 
@@ -117,6 +143,7 @@ export function pay(email: string, delta: number, _reason: string): Account | nu
   if (a.coins + amount < 0) return null;
   a.coins += amount;
   a.v++;
+  persist(a);
   return a;
 }
 

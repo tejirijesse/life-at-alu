@@ -2,7 +2,7 @@
 // else's, keep my wallet, and carry game messages.
 
 import type { Avatar } from "../shared/avatar";
-import { SERVER_PORT, type Account, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
+import { SERVER_PORT, type Account, type BoardId, type Boards, type ChatLine, type ClientMsg, type PlayerState, type ServerMsg } from "../shared/protocol";
 
 type Listener = () => void;
 
@@ -43,8 +43,12 @@ export class Net {
   authVersion = 0;
   /** The last change to my coins, for a little "+36" in the HUD. */
   lastWallet: { delta: number; reason: string; at: number } | null = null;
+  /** The last XP I earned, for a toast (and a bigger one on levelling up). */
+  lastXp: { gained: number; reason: string; levelUp: boolean; level: number; title: string; at: number } | null = null;
+  /** The leaderboards, when asked for. */
+  ranks: { boards: Boards; you: Record<BoardId, { weekly: number | null; all: number | null }>; weekStarts: number; at: number } | null = null;
 
-  private listeners = { roster: new Set<Listener>(), chat: new Set<Listener>(), status: new Set<Listener>(), auth: new Set<Listener>() };
+  private listeners = { roster: new Set<Listener>(), chat: new Set<Listener>(), status: new Set<Listener>(), auth: new Set<Listener>(), ranks: new Set<Listener>() };
   private gameListeners = new Map<string, Set<(data: unknown) => void>>();
   private lastSent = 0;
   private retries = 0;
@@ -103,6 +107,24 @@ export class Net {
         this.lastWallet = { delta: msg.delta, reason: msg.reason, at: Date.now() };
         this.emit("auth");
         break;
+      case "progress":
+        writeSession(msg.token);
+        if (this.account) this.account = { ...this.account, progress: msg.progress };
+        if (msg.gained > 0 || msg.levelUp) this.lastXp = { gained: msg.gained, reason: msg.reason, levelUp: msg.levelUp, level: msg.level, title: msg.title, at: Date.now() };
+        this.emit("auth");
+        break;
+      case "tag": {
+        const p = this.players.get(msg.id);
+        if (p) {
+          this.players.set(msg.id, { ...p, tag: msg.tag });
+          this.emit("roster");
+        }
+        break;
+      }
+      case "ranks":
+        this.ranks = { boards: msg.boards, you: msg.you, weekStarts: msg.weekStarts, at: Date.now() };
+        this.emit("ranks");
+        break;
       case "welcome":
         this.id = msg.id;
         this.color = msg.color;
@@ -127,8 +149,8 @@ export class Net {
           if (p.id === this.id) continue;
           const known = this.players.get(p.id);
           if (!known) changed = true;
-          // Ticks carry positions only; keep the look we got when they joined.
-          this.players.set(p.id, { ...p, look: known?.look ?? p.look });
+          // Ticks carry positions only; keep the look and name tag we already have.
+          this.players.set(p.id, { ...p, look: known?.look ?? p.look, tag: known?.tag ?? p.tag });
         }
         if (changed) this.emit("roster");
         break;
@@ -188,6 +210,11 @@ export class Net {
     this.send({ t: "chat", text });
   }
 
+  /** Ask for the leaderboards (they arrive through onRanks). */
+  askRanks() {
+    this.send({ t: "ranks" });
+  }
+
   game(game: string, data: unknown) {
     this.send({ t: "game", game, data });
   }
@@ -226,6 +253,10 @@ export class Net {
   onStatus(l: Listener) {
     this.listeners.status.add(l);
     return () => void this.listeners.status.delete(l);
+  }
+  onRanks(l: Listener) {
+    this.listeners.ranks.add(l);
+    return () => void this.listeners.ranks.delete(l);
   }
   onAuth(l: Listener) {
     this.listeners.auth.add(l);

@@ -18,6 +18,7 @@ import GameSpots from "./GameSpots";
 import { Chat, Labels, MapDots, placeLabel, RemotePlayers, styleFor, useNetStatus, useRoster } from "./Live";
 import Onboarding, { useAuth } from "./Onboarding";
 import GameHost, { Wallet } from "../games/GameHost";
+import { LegendsBoard, LevelBadge, Rankings, XpToast } from "./Progress";
 import { startById, ZONES, type Zone } from "../../shared/world";
 
 type Input = {
@@ -317,6 +318,7 @@ export default function Campus() {
   // The game spot I'm standing in, and the game I've opened.
   const [zone, setZone] = useState<Zone | null>(null);
   const [playing, setPlaying] = useState<Zone | null>(null);
+  const [rankings, setRankings] = useState(false);
   const zoneRef = useRef<Zone | null>(null);
   zoneRef.current = zone;
   const openGame = () => {
@@ -417,6 +419,7 @@ export default function Campus() {
           <RemotePlayers />
           <Crowd onReady={setStudents} />
           <GameSpots />
+          {started && <LegendsBoard />}
         </Canvas>
       </div>
 
@@ -424,6 +427,13 @@ export default function Campus() {
         <p className="campus-kicker">Life at ALU</p>
         <p className="campus-place">{place}</p>
         {started && account && <Wallet />}
+        {started && account && <LevelBadge
+            onOpen={() => {
+              input.current.keys.clear();
+              input.current.active = false;
+              setRankings(true);
+            }}
+          />}
         {started && (
           <p className={`campus-online${status === "online" ? "" : " off"}`}>
             <i />
@@ -436,6 +446,15 @@ export default function Campus() {
         )}
       </header>
       {started && <Labels selfId={me?.id ?? ""} />}
+      {started && <XpToast />}
+      {rankings && (
+        <Rankings
+          onClose={() => {
+            input.current.active = true;
+            setRankings(false);
+          }}
+        />
+      )}
       {started && status === "online" && <Chat onTyping={(t) => (input.current.typing = t)} />}
       <Minimap dotRef={dotRef} />
       {started && !touch && (
