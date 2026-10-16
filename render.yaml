@@ -1,0 +1,13 @@
+# Render Blueprint for the realtime (multiplayer) server. The campus site itself is on Vercel.
+# In Render: New → Blueprint → pick this repo. Then set ALLOWED_ORIGINS to the Vercel URL.
+services:
+  - type: web
+    name: life-at-alu-realtime
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev
+    startCommand: npx tsx server/index.ts
+    healthCheckPath: /
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false

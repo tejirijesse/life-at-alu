@@ -16,16 +16,30 @@ export class Net {
   private chatListeners = new Set<Listener>();
   private statusListeners = new Set<Listener>();
   private lastSent = 0;
+  private name = "";
+  private retries = 0;
 
   connect(name: string) {
+    this.name = name;
     const url = import.meta.env.VITE_SERVER_URL || `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:${SERVER_PORT}`;
     this.setStatus("connecting");
     const ws = new WebSocket(url);
     this.ws = ws;
-    ws.onopen = () => this.send({ t: "join", name });
-    ws.onclose = () => this.setStatus("offline");
-    ws.onerror = () => this.setStatus("offline");
+    ws.onopen = () => {
+      this.retries = 0;
+      this.send({ t: "join", name });
+    };
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as ServerMsg);
+    ws.onclose = () => {
+      if (this.ws !== ws) return;
+      // Everyone else is unknown until we're back; then the server sends them again.
+      this.players.clear();
+      this.emit(this.rosterListeners);
+      this.setStatus(this.retries < 8 ? "connecting" : "offline");
+      // Keep trying: a free-tier server can take most of a minute to wake up.
+      const wait = Math.min(15000, 1500 * 2 ** this.retries++);
+      setTimeout(() => this.ws === ws && this.connect(this.name), wait);
+    };
   }
 
   private handle(msg: ServerMsg) {

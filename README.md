@@ -38,3 +38,12 @@ Enter (or T) to chat, Esc to stop typing. On phones: left thumb on the joystick,
   without any server traffic. Drawn as eight instanced meshes.
 
 `VITE_SERVER_URL` points the client at a deployed server; `WS_PORT` changes the server's port.
+
+## Deploy
+
+- **Campus site → Vercel.** The Vercel project `life-at-alu` builds this repo (`vercel.json`: Vite, `npm run build`, `dist/`).
+  Set `VITE_SERVER_URL` to the realtime server's `wss://` address in the Vercel project's environment variables.
+- **Realtime server → Render** (Vercel can't keep a WebSocket server running). In Render: New → Blueprint → this repo
+  (`render.yaml`). Set `ALLOWED_ORIGINS` to the Vercel site's URL(s), comma-separated, so only the campus can connect.
+  On the free plan it sleeps after 15 idle minutes; the client keeps retrying while it wakes (up to about a minute).
+- The test bot sends no Origin header, so it can only join a server without `ALLOWED_ORIGINS` (e.g. locally).
