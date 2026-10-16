@@ -862,3 +862,195 @@ input {
 .pl-empty {
   color: var(--muted);
 }
+
+/* ---------- Quiz Night, polls, startup pitches ---------- */
+
+.qz {
+  padding: 14px 18px 20px;
+  font-family: var(--font-reading-stack);
+  font-size: 14px;
+}
+.qz-host {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--graphite);
+}
+.qz-sets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.qz-sets button {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  text-align: left;
+  background: #111;
+  color: #fff;
+}
+.qz-sets button.ghost {
+  background: #fff;
+  color: #111;
+  border: 1px solid #111;
+}
+.qz-sets span {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.qz-pin-label {
+  text-align: center;
+}
+.qz-pin {
+  margin: 4px 0 10px;
+  text-align: center;
+  font: 700 54px ui-monospace, Menlo, monospace;
+  letter-spacing: 0.2em;
+}
+.qz-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.qz-timer {
+  height: 5px;
+  margin: 6px 0 0;
+  background: #1d4fa8;
+  transition: width 0.2s linear;
+}
+.qz-q {
+  margin: 16px 0;
+  font-size: 19px;
+  line-height: 1.35;
+}
+.qz-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.qz-tile {
+  min-height: 64px;
+  padding: 12px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  border: 3px solid transparent;
+}
+.qz-tile i {
+  font-style: normal;
+  margin-right: 6px;
+}
+.qz-tile:disabled {
+  cursor: default;
+}
+.qz-tile.chosen {
+  border-color: #111;
+}
+.qz-tile.wrong {
+  opacity: 0.35;
+}
+.qz-tile.right {
+  box-shadow: 0 0 0 4px #111;
+}
+.qz-note {
+  margin: 12px 0 0;
+  text-align: center;
+  font-weight: 600;
+}
+.qz-board.podium li:first-child {
+  font-size: 16px;
+  font-weight: 700;
+}
+.qz-board small {
+  margin-left: 6px;
+  color: #2f8a4f;
+}
+.qz-builder fieldset {
+  margin: 0 0 12px;
+  border: 1px solid #0002;
+  padding: 8px 12px 12px;
+}
+.qz-builder .campus-name {
+  margin-top: 8px;
+}
+.qz-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.qz-opt span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: #fff;
+  font-size: 12px;
+}
+.qz-opt input[type="text"],
+.qz-opt input:not([type]) {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #0003;
+}
+.qz-join {
+  margin-top: 12px;
+  text-align: center;
+}
+.qz-join .campus-name {
+  max-width: 200px;
+  margin: 10px auto 0;
+}
+.pv {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #0002;
+}
+.pv.closed {
+  opacity: 0.7;
+}
+.pv h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.pv h3 small {
+  font-weight: 400;
+  color: var(--muted);
+}
+.pv-line {
+  margin: 6px 0 0;
+  font-weight: 600;
+}
+.pv-opt {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: #f4f2ee;
+  overflow: hidden;
+  text-align: left;
+}
+.pv-opt.mine {
+  outline: 2px solid #111;
+}
+.pv-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #ffd16688;
+  transition: width 0.3s;
+}
+.pv-label,
+.pv-opt b {
+  position: relative;
+}
+.qz-end {
+  margin-left: 10px;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid #0003;
+  font-size: 11px;
+}
